@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+
+# Local data
+*.png
+*.pdf
+*.ipynb_checkpoints/
+
+# Reference (do not push pedagogical materials)
+reference/
+
+
