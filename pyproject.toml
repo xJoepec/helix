@@ -26,6 +26,12 @@ classifiers = [
 torch = ["torch"]
 sympy = ["sympy"]
 plot = ["matplotlib"]
+tui = [
+  "textual>=0.58",
+  "torch",  # required for demo computation
+  "platformdirs>=4.0",  # cross-platform config directory support
+  "toml>=0.10",  # config file format
+]
 dev = [
   "ruff>=0.5",
   "pytest>=7",
@@ -33,6 +39,7 @@ dev = [
 
 [project.scripts]
 helix = "helix.cli:main"
+helix-tui = "helix.tui:main"
 
 [tool.setuptools]
 package-dir = {"" = "code"}
@@ -42,10 +49,12 @@ include-package-data = true
 where = ["code"]
 include = ["helix*"]
 
+[tool.setuptools.package-data]
+"helix" = ["py.typed"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py39"
 select = ["E", "F", "I"]
 ignore = []
-
 

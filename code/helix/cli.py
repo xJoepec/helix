@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -16,18 +16,18 @@ except Exception as _e:  # pragma: no cover
     F = None
 
 from . import (
-    extract_partitions,
     build_V_from_incidence,
-    sanity_check_ucp,
-    ulam_pf,
-    spectral_gap,
-    region_counts,
+    extract_partitions,
     mass_consistency_errors,
+    region_counts,
+    sanity_check_ucp,
+    spectral_gap,
+    ulam_pf,
 )
 from .plotting import (
-    plot_region_counts,
-    plot_mass_consistency,
     plot_cp_errors,
+    plot_mass_consistency,
+    plot_region_counts,
     plot_ulam_spectrum,
 )
 
@@ -112,7 +112,10 @@ def run_demo(args: argparse.Namespace) -> int:
     print("[AF] mass consistency L1 errors:", errs)
     for k, s in enumerate(cp_stats, start=1):
         print(
-            f"[CP] depth {k}: unital={s['unital_err_fro']:.2e}, coiso={s['coisometry_err_fro']:.2e}, psd_vio={s['psd_min_eig_violation']:.2e}"
+            f"[CP] depth {k}: "
+            f"unital={s['unital_err_fro']:.2e}, "
+            f"coiso={s['coisometry_err_fro']:.2e}, "
+            f"psd_vio={s['psd_min_eig_violation']:.2e}"
         )
     print("[ULAM] spectral gap:", f"{gap:.4f}")
 
@@ -134,7 +137,19 @@ def run_demo(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    # Quick subcommand dispatch for `helix tui` without breaking legacy flags-only usage
+    if argv and len(argv) > 0 and argv[0] == "tui":
+        try:
+            from .tui import run_tui
+        except Exception as e:  # pragma: no cover
+            print(
+                "Helix TUI not available. Install TUI extras: pip install '.[tui]'.\n"
+                f"Details: {e}"
+            )
+            return 1
+        return run_tui(argv[1:])
+
     p = argparse.ArgumentParser(description="Helix CLI: run diagnostics and plots")
     p.add_argument("demo", nargs="?", default="demo", help="run demo (default)")
     p.add_argument("--samples", type=int, default=4000)
@@ -154,9 +169,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-show", action="store_true")
     p.add_argument("--save-prefix", type=str, default="")
     args = p.parse_args(argv)
+
+    # Back-compat: allow `helix tui` to pass through even if parsed as positional
+    if getattr(args, "demo", None) == "tui":
+        try:
+            from .tui import run_tui
+        except Exception as e:  # pragma: no cover
+            print(
+                "Helix TUI not available. Install TUI extras: pip install '.[tui]'.\n"
+                f"Details: {e}"
+            )
+            return 1
+        return run_tui([])
     return run_demo(args)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

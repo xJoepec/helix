@@ -46,6 +46,34 @@ Generates:
 - `helix_out_cp.png`: CP diagnostics (unitality, coisometry, PSD)
 - `helix_out_ulam.png`: top magnitudes of Ulam PF eigenvalues
 
+### TUI (Textual UI)
+
+Interactive console UI for running the demo with background progress, config
+persistence, and JSON export.
+
+Install the TUI extras:
+
+```bash
+python3 -m pip install -e .[tui]
+```
+
+Launch the TUI:
+
+```bash
+helix tui
+# or
+helix-tui
+```
+
+The TUI lets you tweak demo parameters (samples, noise, width, epochs, Ulam settings) and run computations interactively. It displays region counts, mass L1 errors, CP checks, and Ulam spectral information in a split view.
+
+Features:
+- **Background computation**: Run button starts async computation with progress bar
+- **Cancel support**: Cancel button stops long-running computations
+- **Config persistence**: Saved under your user config directory (via `platformdirs`), e.g. `~/.config/helix/config.toml`
+- **JSON export**: Saves metrics to `helix_metrics_YYYYMMDD_HHMMSS.json` in the current directory
+- **Keyboard shortcuts**: `r` (Run), `s` (Save Config), `d` (Reset Defaults), `e` (Export JSON), `q` (Quit)
+
 ### Programmatic API (Python)
 
 Minimal end‑to‑end example:
@@ -171,4 +199,3 @@ Alternatively, use the CLI entry script with Ulam sampling control:
 ```
 ./helix --plot --ulam-bins 25 --ulam-samples-per-cell 4 --save-prefix helix_out
 ```
-

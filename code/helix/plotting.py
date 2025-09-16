@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence
 
 import numpy as np
 
@@ -23,7 +23,9 @@ def plot_region_counts(n_list: Sequence[int], *, title: str = "Region counts vs 
     return fig, ax
 
 
-def plot_mass_consistency(errs: Sequence[float], *, title: str = r"Mass consistency $\|\tau_{k-1}-B_k\tau_k\|_1$"):
+def plot_mass_consistency(
+    errs: Sequence[float], *, title: str = r"Mass consistency $\|\tau_{k-1}-B_k\tau_k\|_1$"
+):
     plt = _import_matplotlib()
     fig, ax = plt.subplots()
     # Compatibility across Matplotlib versions
@@ -54,7 +56,9 @@ def plot_cp_errors(cp_stats: List[Dict[str, float]], *, title: str = "CP diagnos
     return fig, ax
 
 
-def plot_ulam_spectrum(P: np.ndarray, top: int = 10, *, title: str = "Ulam PF eigenvalue magnitudes"):
+def plot_ulam_spectrum(
+    P: np.ndarray, top: int = 10, *, title: str = "Ulam PF eigenvalue magnitudes"
+):
     plt = _import_matplotlib()
     vals = np.sort(np.abs(np.linalg.eigvals(P.T)))[::-1][:top]
     fig, ax = plt.subplots()

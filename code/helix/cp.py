@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -24,7 +24,6 @@ def build_V_from_incidence(B: np.ndarray, tau_prev: np.ndarray, tau_cur: np.ndar
     V = np.zeros((n_prev, n_cur), dtype=np.float64)
 
     # Identify a parent for each column; prefer unique 1, fall back to argmax
-    col_sums = B.sum(axis=0)
     parents = B.argmax(axis=0)
 
     # Compute scaling safely; zero masses lead to zero columns/rows automatically
@@ -49,7 +48,9 @@ def cp_embed_apply(V: np.ndarray, X: np.ndarray) -> np.ndarray:
     return V.T.conj() @ X @ V
 
 
-def sanity_check_ucp(V: np.ndarray, trials: int = 6, rng: np.random.Generator | None = None) -> Dict[str, float]:
+def sanity_check_ucp(
+    V: np.ndarray, trials: int = 6, rng: Optional[np.random.Generator] = None
+) -> Dict[str, float]:
     """Sanity checks: unitality Φ(I)=I and PSD preservation for random PSD inputs.
 
     Returns dict with Frobenius error of unitality and maximum PSD violation.
@@ -77,4 +78,3 @@ def sanity_check_ucp(V: np.ndarray, trials: int = 6, rng: np.random.Generator | 
         "coisometry_err_fro": float(coiso_err),
         "psd_min_eig_violation": float(max_psd_violation),
     }
-

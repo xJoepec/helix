@@ -133,9 +133,10 @@ def extract_partitions(
                     continue
                 p = parent_cell_of[idxs[0]]
                 # Refinement safety: all samples in a child cell must share the same parent
-                assert np.all(
-                    parent_cell_of[idxs] == p
-                ), "Partition refinement violated: mixed parents within a child cell"
+                if not np.all(parent_cell_of[idxs] == p):
+                    raise ValueError(
+                        "Partition refinement violated: mixed parents within a child cell"
+                    )
                 B[p, j] = 1
                 parent_of[j] = p
         B_list.append(B)

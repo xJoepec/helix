@@ -15,14 +15,14 @@ except Exception as _e:  # pragma: no cover
     F = None
 
 from helix import (
-    extract_partitions,
     build_V_from_incidence,
-    sanity_check_ucp,
-    ulam_pf,
-    spectral_gap,
-    region_counts,
-    mass_consistency_errors,
     cumulative_anisotropy,
+    extract_partitions,
+    mass_consistency_errors,
+    region_counts,
+    sanity_check_ucp,
+    spectral_gap,
+    ulam_pf,
 )
 
 
@@ -82,7 +82,10 @@ def main():
         V = build_V_from_incidence(B, tau_prev, tau_cur)
         stats = sanity_check_ucp(V, trials=6)
         print(
-            f"[CP] depth {k}: unital={stats['unital_err_fro']:.2e}, coiso={stats['coisometry_err_fro']:.2e}, psd_vio={stats['psd_min_eig_violation']:.2e}"
+            f"[CP] depth {k}: "
+            f"unital={stats['unital_err_fro']:.2e}, "
+            f"coiso={stats['coisometry_err_fro']:.2e}, "
+            f"psd_vio={stats['psd_min_eig_violation']:.2e}"
         )
 
     # Ulam PF on a tiny residual block built from scratch
@@ -105,7 +108,10 @@ def main():
     col_mass = cumulative_anisotropy(af.B_list)
     if col_mass.size:
         print(
-            f"[ANISO] cumulative column sums: min={col_mass.min()}, median={np.median(col_mass)}, max={col_mass.max()}"
+            "[ANISO] cumulative column sums: "
+            f"min={col_mass.min()}, "
+            f"median={np.median(col_mass)}, "
+            f"max={col_mass.max()}"
         )
 
 

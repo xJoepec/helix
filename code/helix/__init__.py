@@ -9,32 +9,32 @@ Modules
 - diagnostics: convenience metrics for training-time monitoring
 """
 
-from .partitions import (
-    PartitionLevel,
-    AFExtraction,
-    extract_partitions,
-)
 from .cp import (
     build_V_from_incidence,
     cp_embed_apply,
     sanity_check_ucp,
 )
-from .ulam import (
-    ulam_pf,
-    spectral_gap,
+from .diagnostics import (
+    cumulative_anisotropy,
+    mass_consistency_errors,
+    region_counts,
 )
 from .ktheory import (
-    smith_normal_form_Z,
     k_invariants_from_B,
+    smith_normal_form_Z,
 )
-from .diagnostics import (
-    region_counts,
-    mass_consistency_errors,
-    cumulative_anisotropy,
+from .partitions import (
+    AFExtraction,
+    PartitionLevel,
+    extract_partitions,
 )
 from .sparse import (
-    parents_from_B,
     B_from_parents,
+    parents_from_B,
+)
+from .ulam import (
+    spectral_gap,
+    ulam_pf,
 )
 
 __all__ = [

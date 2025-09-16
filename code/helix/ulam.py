@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, List, Tuple, Optional
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -54,7 +54,10 @@ def ulam_pf(
 
     # Accumulate into P with barycentric splitting
     P = np.zeros((M, M), dtype=np.float64)
-    multipliers = np.array([bins_per_dim ** i for i in range(d)], dtype=np.int64)
+    # Map multi-index (idx[0],...,idx[d-1]) to flat index consistent with
+    # np.meshgrid(..., indexing="ij") followed by C-order flattening.
+    # Axis 0 varies slowest, so use reversed powers.
+    multipliers = np.array([bins_per_dim ** (d - 1 - i) for i in range(d)], dtype=np.int64)
 
     def deposit_point(y: np.ndarray, row: int):
         # Compute fractional bin coordinates per dimension
@@ -107,4 +110,3 @@ def spectral_gap(P: np.ndarray, k: int = 5) -> float:
     if eigs.size < 2:
         return 0.0
     return float(1.0 - eigs[1])
-

@@ -1,23 +1,26 @@
 from __future__ import annotations
 
+import os
+import sys
 import unittest
 
 import numpy as np
-
-import os, sys
 
 # Ensure the 'code' directory (package root for 'helix') is on sys.path
 PKG_ROOT = os.path.dirname(os.path.dirname(__file__))
 if PKG_ROOT not in sys.path:
     sys.path.insert(0, PKG_ROOT)
 
-from helix.sparse import parents_from_B, B_from_parents
-from helix.partitions import extract_partitions
-from helix.ulam import ulam_pf
+"""Tests for sparse helpers and extraction.
+
+Imports from the package are done inside test bodies to avoid E402 with sys.path edits.
+"""
 
 
 class TestSparseHelpers(unittest.TestCase):
     def test_roundtrip_parents_B(self):
+        from helix.sparse import B_from_parents, parents_from_B
+
         parents = np.array([0, 0, 2, -1, 1], dtype=np.int64)
         n_prev = 3
         B = B_from_parents(parents, n_prev)
@@ -26,8 +29,11 @@ class TestSparseHelpers(unittest.TestCase):
         self.assertTrue(np.array_equal(p2, parents))
 
     def test_ulam_row_stochastic(self):
+        from helix.ulam import ulam_pf
+
         # Identity map on a 2D box
-        F = lambda x: x
+        def F(x):
+            return x
         lo = np.array([-1.0, -1.0])
         hi = np.array([1.0, 1.0])
         P, _ = ulam_pf(F, (lo, hi), bins_per_dim=5, samples_per_cell=3)
@@ -37,6 +43,9 @@ class TestSparseHelpers(unittest.TestCase):
 
 class TestExtractPartitionsSparse(unittest.TestCase):
     def test_parent_of_matches_B(self):
+        from helix.partitions import extract_partitions
+        from helix.sparse import parents_from_B
+
         try:
             import torch
             import torch.nn as nn
