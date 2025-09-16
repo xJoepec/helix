@@ -86,6 +86,3 @@ Documentation
 - Troubleshooting: docs/troubleshooting.md
 - Environments: docs/environments.md
 - Roadmap: docs/roadmap.md
-
-License
-MIT
