@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "helix"
 version = "0.1.0"
 description = "Operator-algebraic diagnostics for deep nets (AF partitions, CP maps, Ulam PF)."
-readme = "code/helix/README.md"
+readme = "README.md"
 requires-python = ">=3.9"
 authors = [
   { name = "Project Helix" }
@@ -23,18 +23,49 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-torch = ["torch"]
-sympy = ["sympy"]
-plot = ["matplotlib"]
+# Individual components
+torch = ["torch>=2.0"]
+sympy = ["sympy>=1.12"]
+viz = ["matplotlib>=3.5", "networkx>=2.8"]
+
+# Installation profiles
+minimal = ["scipy>=1.10"]  # Just core functionality with scipy
+
+standard = [
+  "helix[minimal]",
+  "helix[viz]",
+]
+
+full = [
+  "helix[standard]",
+  "helix[torch]",
+  "textual>=0.58",
+  "platformdirs>=4.0",
+  "toml>=0.10",
+]
+
 tui = [
   "textual>=0.58",
-  "torch",  # required for demo computation
+  "torch>=2.0",  # required for demo computation
   "platformdirs>=4.0",  # cross-platform config directory support
   "toml>=0.10",  # config file format
 ]
+
+research = [
+  "helix[full]",
+  "helix[sympy]",
+  "jupyter>=1.0",
+  "ipython>=8.0",
+]
+
 dev = [
+  "helix[full]",
   "ruff>=0.5",
-  "pytest>=7",
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.0",
+  "sphinx>=6.0",
+  "hypothesis>=6.0",
 ]
 
 [project.scripts]
@@ -57,4 +88,3 @@ line-length = 100
 target-version = "py39"
 select = ["E", "F", "I"]
 ignore = []
-
