@@ -86,3 +86,7 @@ Documentation
 - Troubleshooting: docs/troubleshooting.md
 - Environments: docs/environments.md
 - Roadmap: docs/roadmap.md
+
+MIT License
+
+Copyright (c) 2025 Project Helix
