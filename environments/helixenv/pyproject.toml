@@ -18,6 +18,9 @@ dependencies = [
   "datasets>=2.14.0",
 ]
 
+[project.scripts]
+helixenv-cli = "environments.helixenv.cli:main"
+
 [project.urls]
 "Homepage" = "https://github.com/primeintellect-ai/helix"
 

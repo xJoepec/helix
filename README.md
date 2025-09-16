@@ -80,6 +80,7 @@ Project Layout
 Documentation
 - Start here: docs/overview.md
 - Concepts: docs/concepts.md
+- Applications: docs/applications.md
 - Getting started: docs/getting-started.md
 - CLI: docs/cli.md, TUI: docs/tui.md
 - API surface: docs/api.md
