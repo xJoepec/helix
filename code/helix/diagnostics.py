@@ -32,5 +32,3 @@ def cumulative_anisotropy(B_list: List[np.ndarray]) -> np.ndarray:
     if Bcum is None:
         return np.array([], dtype=np.int64)
     return Bcum.sum(axis=0)
-
-

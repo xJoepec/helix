@@ -66,11 +66,17 @@ def _style(text: str, *, color: Optional[str] = None, bold: bool = False) -> str
     return f"{prefix}{text}\033[0m"
 
 
-TRIM_TOP_LINES = 3
+TRIM_TOP_LINES = 4
 TRIM_MAX_LINES = 18
+TRIM_BOTTOM_LINES = 1  # trim last row which is static/non-animating
 
 
-def _trim_frame(frame: str, top: int = TRIM_TOP_LINES, max_lines: int = TRIM_MAX_LINES) -> str:
+def _trim_frame(
+    frame: str,
+    top: int = TRIM_TOP_LINES,
+    max_lines: int = TRIM_MAX_LINES,
+    bottom: int = TRIM_BOTTOM_LINES,
+) -> str:
     lines = frame.splitlines()
     if top > 0:
         lines = lines[top:] if len(lines) > top else []
@@ -83,7 +89,35 @@ def _trim_frame(frame: str, top: int = TRIM_TOP_LINES, max_lines: int = TRIM_MAX
         lines = lines[:helix_idx]
     if max_lines > 0 and len(lines) > max_lines:
         lines = lines[:max_lines]
+    if bottom > 0:
+        lines = lines[: len(lines) - bottom] if len(lines) > bottom else []
     return "\n".join(lines)
+
+
+def _normalize_frames(frames: List[str]) -> Tuple[List[str], int, int]:
+    """Pad/truncate frames so they all share a common width and height.
+
+    Returns (normalized_frames, width, height).
+    """
+    split_frames: List[List[str]] = [f.splitlines() for f in frames]
+    if not split_frames:
+        return [], 0, 0
+
+    max_height = max(len(lines) for lines in split_frames)
+    max_width = 0
+    for lines in split_frames:
+        for line in lines:
+            if len(line) > max_width:
+                max_width = len(line)
+
+    normalized: List[str] = []
+    for lines in split_frames:
+        padded_lines = [line + (" " * (max_width - len(line))) for line in lines]
+        if len(padded_lines) < max_height:
+            padded_lines.extend([" " * max_width] * (max_height - len(padded_lines)))
+        normalized.append("\n".join(padded_lines))
+
+    return normalized, max_width, max_height
 
 
 def _load_external_helix_frames() -> List[str]:
@@ -193,6 +227,13 @@ def _build_helix_frames() -> List[str]:
 
 ASCII_HELIX_FRAMES = _load_external_helix_frames() or _build_helix_frames()
 
+# Build a normalized set of frames for reliable terminal rendering
+NORMALIZED_HELIX_FRAMES, NORMALIZED_HELIX_WIDTH, NORMALIZED_HELIX_HEIGHT = (
+    _normalize_frames([_trim_frame(f) for f in ASCII_HELIX_FRAMES])
+    if ASCII_HELIX_FRAMES
+    else ([], 0, 0)
+)
+
 
 def _colorize_frame(frame: str) -> str:
     lines = frame.splitlines()
@@ -217,10 +258,10 @@ def _colorize_frame(frame: str) -> str:
 
 
 def _render_banner() -> str:
-    if not ASCII_HELIX_FRAMES:
+    if not NORMALIZED_HELIX_FRAMES:
         return ""
-    frame = ASCII_HELIX_FRAMES[int(_time()) % len(ASCII_HELIX_FRAMES)]
-    return _colorize_frame(_trim_frame(frame))
+    frame = NORMALIZED_HELIX_FRAMES[int(_time()) % len(NORMALIZED_HELIX_FRAMES)]
+    return _colorize_frame(frame)
 
 
 def _is_tty() -> bool:
@@ -245,7 +286,11 @@ def _animate_banner(loops: int = 1, fps: float = 15.0) -> None:
     move_home = "\x1b[H"
 
     loops = max(1, loops)
-    frames = [_trim_frame(frame) for frame in ASCII_HELIX_FRAMES]
+    frames = (
+        NORMALIZED_HELIX_FRAMES
+        if NORMALIZED_HELIX_FRAMES
+        else [_trim_frame(frame) for frame in ASCII_HELIX_FRAMES]
+    )
 
     try:
         sys.stdout.write(hide_cursor)
@@ -277,7 +322,11 @@ def _animate_banner_continuous(
         return
 
     delay = 1.0 / max(fps, 1.0)
-    frames = [_trim_frame(frame) for frame in ASCII_HELIX_FRAMES]
+    frames = (
+        NORMALIZED_HELIX_FRAMES
+        if NORMALIZED_HELIX_FRAMES
+        else [_trim_frame(frame) for frame in ASCII_HELIX_FRAMES]
+    )
     total_up = max(0, frame_height + lines_after_frame)
     move_up = f"\x1b[{total_up}A" if total_up else ""
     frame_idx = 0
@@ -296,7 +345,6 @@ def _animate_banner_continuous(
             if idx < len(frame_lines) - 1:
                 sys.stdout.write("\n")
                 sys.stdout.write("\x1b[0G")
-        sys.stdout.write("\n")
         sys.stdout.write("\x1b[u")  # return to prompt/input
         sys.stdout.write("\x1b[s")  # keep prompt location saved for next loop
         sys.stdout.flush()
@@ -345,13 +393,13 @@ def run_interactive() -> int:
             print("\033[2J\033[H" if _supports_color() else "\n" * 50)
 
             frame_height = 0
-            if ASCII_HELIX_FRAMES:
-                trimmed = _trim_frame(ASCII_HELIX_FRAMES[0])
-                frame_text = _colorize_frame(trimmed)
+            if NORMALIZED_HELIX_FRAMES:
+                first_frame = NORMALIZED_HELIX_FRAMES[0]
+                frame_text = _colorize_frame(first_frame)
                 sys.stdout.write(frame_text)
                 sys.stdout.write("\n")
                 sys.stdout.flush()
-                frame_height = len(trimmed.splitlines())
+                frame_height = NORMALIZED_HELIX_HEIGHT
 
             lines_after_frame = 0
 
@@ -370,7 +418,11 @@ def run_interactive() -> int:
             _print_menu_line("  [4] Exit")
             _print_menu_line()
 
-            prompt = _style("Your choice: ", color="96", bold=True) if _supports_color() else "Your choice: "
+            prompt = (
+                _style("Your choice: ", color="96", bold=True)
+                if _supports_color()
+                else "Your choice: "
+            )
             sys.stdout.write(prompt)
             sys.stdout.flush()
 
@@ -412,7 +464,7 @@ def run_interactive() -> int:
                     ulam_samples_per_cell=1,
                     plot=False,
                     no_show=True,
-                    save_prefix=""
+                    save_prefix="",
                 )
                 print()
                 return run_demo(args)
@@ -421,8 +473,12 @@ def run_interactive() -> int:
                 print()
                 print(_headline("Custom Analysis Setup"))
 
-                data_x = input("Path to features array (.npy/.npz/.csv) [press Enter to use demo data]: ").strip()
-                model_module = input("Path to model module [press Enter for built-in MLP]: ").strip()
+                data_x = input(
+                    "Path to features array (.npy/.npz/.csv) [press Enter to use demo data]: "
+                ).strip()
+                model_module = input(
+                    "Path to model module [press Enter for built-in MLP]: "
+                ).strip()
 
                 args = argparse.Namespace(
                     model_module=model_module,
@@ -440,7 +496,7 @@ def run_interactive() -> int:
                     no_ulam=False,
                     seed=1,
                     samples=4000,
-                    noise=0.07
+                    noise=0.07,
                 )
                 print()
                 return run_analyze(args)
@@ -448,9 +504,14 @@ def run_interactive() -> int:
                 # Launch TUI
                 try:
                     from .tui import run_tui
+
                     return run_tui([])
                 except Exception as e:
-                    print(_error(f"\nHelix TUI not available. Install TUI extras: pip install '.[tui]'"))
+                    print(
+                        _error(
+                            "\nHelix TUI not available. Install TUI extras: pip install '.[tui]'"
+                        )
+                    )
                     print(_subtle(f"Details: {e}"))
                     input("\nPress Enter to continue...")
                     continue
@@ -502,7 +563,7 @@ def _seed_torch(seed: int) -> None:
             pass
         try:  # pragma: no cover
             torch.backends.cudnn.deterministic = True  # type: ignore[attr-defined]
-            torch.backends.cudnn.benchmark = False     # type: ignore[attr-defined]
+            torch.backends.cudnn.benchmark = False  # type: ignore[attr-defined]
         except Exception:
             pass
     except Exception:
@@ -531,7 +592,6 @@ def _load_array(path: str) -> np.ndarray:
 
 def _dynamic_import_builder(module_path: str, func_name: str = "build_model"):
     import importlib.util
-    import types
 
     spec = importlib.util.spec_from_file_location("helix_user_model", module_path)
     if spec is None or spec.loader is None:
@@ -808,22 +868,44 @@ def main(argv: Optional[List[str]] = None) -> int:
             from .tui import run_tui
         except Exception as e:  # pragma: no cover
             print(
-                "Helix TUI not available. Install TUI extras: pip install '.[tui]'.\n"
-                f"Details: {e}"
+                f"Helix TUI not available. Install TUI extras: pip install '.[tui]'.\nDetails: {e}"
             )
             return 1
         return run_tui(argv[1:])
     # New: custom analysis subcommand
     if argv and len(argv) > 0 and argv[0] == "analyze":
         pz = argparse.ArgumentParser(description="Helix CLI: analyze a custom model/dataset")
-        pz.add_argument("--model-module", type=str, default="", help="Path to Python file that defines a model builder")
-        pz.add_argument("--model-func", type=str, default="build_model", help="Builder function name in the module")
-        pz.add_argument("--model-kwargs", type=str, default="", help="JSON dict of kwargs to pass to the builder")
-        pz.add_argument("--weights", type=str, default="", help="Optional path to a state_dict .pt/.pth file")
-        pz.add_argument("--data-x", type=str, default="", help="Path to features array (.npy/.npz/.csv)")
-        pz.add_argument("--data-y", type=str, default="", help="Optional path to labels array for training")
+        pz.add_argument(
+            "--model-module",
+            type=str,
+            default="",
+            help="Path to Python file that defines a model builder",
+        )
+        pz.add_argument(
+            "--model-func",
+            type=str,
+            default="build_model",
+            help="Builder function name in the module",
+        )
+        pz.add_argument(
+            "--model-kwargs",
+            type=str,
+            default="",
+            help="JSON dict of kwargs to pass to the builder",
+        )
+        pz.add_argument(
+            "--weights", type=str, default="", help="Optional path to a state_dict .pt/.pth file"
+        )
+        pz.add_argument(
+            "--data-x", type=str, default="", help="Path to features array (.npy/.npz/.csv)"
+        )
+        pz.add_argument(
+            "--data-y", type=str, default="", help="Optional path to labels array for training"
+        )
         pz.add_argument("--d-out", type=int, default=2, help="Output width if using built-in MLP")
-        pz.add_argument("--width", type=int, default=16, help="Hidden width for built-in MLP if used")
+        pz.add_argument(
+            "--width", type=int, default=16, help="Hidden width for built-in MLP if used"
+        )
         pz.add_argument("--epochs", type=int, default=50)
         pz.add_argument("--no-train", action="store_true")
         pz.add_argument("--ulam-bins", type=int, default=25)
@@ -834,8 +916,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_analyze(az)
 
     p = argparse.ArgumentParser(description="Helix CLI: run diagnostics and plots")
-    p.add_argument("demo", nargs="?", default=None, help="run demo (use 'demo' explicitly or use --non-interactive)")
-    p.add_argument("--non-interactive", action="store_true", help="Skip interactive menu and run directly")
+    p.add_argument(
+        "demo",
+        nargs="?",
+        default=None,
+        help="run demo (use 'demo' explicitly or use --non-interactive)",
+    )
+    p.add_argument(
+        "--non-interactive", action="store_true", help="Skip interactive menu and run directly"
+    )
     p.add_argument("--samples", type=int, default=4000)
     p.add_argument("--noise", type=float, default=0.07)
     p.add_argument("--seed", type=int, default=1)
@@ -864,16 +953,26 @@ def main(argv: Optional[List[str]] = None) -> int:
             from .tui import run_tui
         except Exception as e:  # pragma: no cover
             print(
-                "Helix TUI not available. Install TUI extras: pip install '.[tui]'.\n"
-                f"Details: {e}"
+                f"Helix TUI not available. Install TUI extras: pip install '.[tui]'.\nDetails: {e}"
             )
             return 1
         return run_tui([])
 
     # If we have other flags but no explicit command, run demo with those flags
-    if any([args.plot, args.no_train, args.save_prefix, args.no_show,
-            args.samples != 4000, args.noise != 0.07, args.width != 16,
-            args.epochs != 100, args.ulam_bins != 25, args.ulam_samples_per_cell != 1]):
+    if any(
+        [
+            args.plot,
+            args.no_train,
+            args.save_prefix,
+            args.no_show,
+            args.samples != 4000,
+            args.noise != 0.07,
+            args.width != 16,
+            args.epochs != 100,
+            args.ulam_bins != 25,
+            args.ulam_samples_per_cell != 1,
+        ]
+    ):
         return run_demo(args)
 
     # Otherwise, run interactive mode

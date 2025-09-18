@@ -16,7 +16,6 @@ from datasets import Dataset
 from verifiers import Parser
 from verifiers.types import Messages
 
-
 # Small built‑in MCQ bank (gold at index 0 before any shuffling)
 MCQ_ITEMS: list[dict[str, Any]] = [
     {
@@ -179,6 +178,7 @@ def load_environment(
             return opts, 0
         try:
             import hashlib
+
             h = int(hashlib.md5(qid.encode("utf-8")).hexdigest(), 16)
         except Exception:
             h = 0
@@ -201,7 +201,7 @@ def load_environment(
         if answer_mode == "mcq":
             if options:
                 question_text += "\n\nOptions:\n" + "".join(
-                    f"{chr(65+i)}. {opt}\n" for i, opt in enumerate(options[:5])
+                    f"{chr(65 + i)}. {opt}\n" for i, opt in enumerate(options[:5])
                 )
             gold_letter = chr(65 + gold_index) if gold_index < 5 else "A"
             answer_data = {
@@ -228,7 +228,9 @@ def load_environment(
         }
 
     base = Dataset.from_list(items)
-    eval_dataset = base.map(transform_example).select_columns(["question", "answer", "task", "info"])
+    eval_dataset = base.map(transform_example).select_columns(
+        ["question", "answer", "task", "info"]
+    )
 
     # Parser selection
     if answer_mode == "mcq":
@@ -305,6 +307,7 @@ def load_environment(
     rule_rubric = vf.Rubric(funcs=[score_completion], weights=[1.0], parser=parser)
 
     if mode == "agentic":
+
         class HelixAgenticEnv(vf.MultiTurnEnv):
             def __init__(self, *args, max_turns: int = 10, **kwargs):
                 super().__init__(*args, **kwargs)

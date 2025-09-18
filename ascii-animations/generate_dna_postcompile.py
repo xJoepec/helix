@@ -7,12 +7,12 @@ from typing import List
 # Produces a file named `post-compile.txt` in the same directory.
 
 # You can tweak these values to change the look/feel
-WIDTH = 80          # characters wide
-HEIGHT = 32         # characters tall
-FRAMES = 64         # total frames in the loop
-WAVELENGTH = 14.0   # vertical rows per full sine wave cycle
+WIDTH = 80  # characters wide
+HEIGHT = 32  # characters tall
+FRAMES = 64  # total frames in the loop
+WAVELENGTH = 14.0  # vertical rows per full sine wave cycle
 AMPLITUDE = int(WIDTH * 0.27)  # horizontal swing of the strands
-RUNG_GAP = 2        # vertical spacing between base-pair rungs (rows)
+RUNG_GAP = 2  # vertical spacing between base-pair rungs (rows)
 
 OUTPUT_FILE = Path(__file__).parent / "post-compile.txt"
 
@@ -51,10 +51,14 @@ def generate_frame(t: int) -> List[str]:
         # Left/Right strand x-positions
         xL = cx + int(AMPLITUDE * math.sin(phi))
         xR = cx - int(AMPLITUDE * math.sin(phi))
-        if xL < 0: xL = 0
-        if xL >= WIDTH: xL = WIDTH - 1
-        if xR < 0: xR = 0
-        if xR >= WIDTH: xR = WIDTH - 1
+        if xL < 0:
+            xL = 0
+        if xL >= WIDTH:
+            xL = WIDTH - 1
+        if xR < 0:
+            xR = 0
+        if xR >= WIDTH:
+            xR = WIDTH - 1
 
         # Rungs (base pairs) every RUNG_GAP rows
         if y % RUNG_GAP == 0:

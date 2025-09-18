@@ -46,5 +46,3 @@ def k_invariants_from_B(B: np.ndarray) -> Dict[str, object]:
     n = B.shape[1]
     M = np.eye(n, dtype=int) - B.T.astype(int)
     return smith_normal_form_Z(M)
-
-

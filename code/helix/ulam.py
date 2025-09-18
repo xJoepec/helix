@@ -82,7 +82,7 @@ def ulam_pf(
                         break
                     w *= r[i]
                 else:
-                    w *= (1.0 - r[i])
+                    w *= 1.0 - r[i]
             if not valid or w == 0.0:
                 continue
             tgt = int((idx * multipliers).sum())

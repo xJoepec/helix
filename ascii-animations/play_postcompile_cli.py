@@ -110,7 +110,9 @@ def play_cli(frames: List[List[str]], fps: float, loop: bool) -> None:
 
 def main():
     ap = argparse.ArgumentParser(description="CLI player for garbtronix post-compile animations")
-    ap.add_argument("--file", "-f", type=Path, default=Path("post-compile.txt"), help="Path to post-compile.txt")
+    ap.add_argument(
+        "--file", "-f", type=Path, default=Path("post-compile.txt"), help="Path to post-compile.txt"
+    )
     ap.add_argument("--fps", type=float, default=15.0, help="Frames per second")
     ap.add_argument("--loop", action="store_true", help="Loop playback (default: false)")
     args = ap.parse_args()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -39,4 +39,3 @@ def json_dumps(obj: Any, **kwargs: Any) -> str:
     import json
 
     return json.dumps(to_jsonable(obj), **kwargs)
-

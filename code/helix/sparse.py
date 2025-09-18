@@ -48,4 +48,3 @@ def B_from_parents(parents: np.ndarray, n_prev: int) -> np.ndarray:
 def parents_memory_bytes(parents_list: List[np.ndarray]) -> int:
     """Total memory footprint in bytes for a list of parent arrays."""
     return sum(p.nbytes for p in parents_list)
-
