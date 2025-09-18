@@ -17,11 +17,10 @@ Usage examples:
 """
 
 import argparse
+import json
 import os
 import sys
-from typing import List, Optional, Dict, Any, Tuple
-import json
-import shutil
+from typing import Any, Dict, List, Optional
 
 
 def _ensure_helix_on_path() -> None:
@@ -84,7 +83,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Optional nice prompts if questionary is available
     def _has_questionary() -> bool:
         try:
-            import questionary  # type: ignore
             return True
         except Exception:
             return False
@@ -92,6 +90,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _q_select(message: str, choices: List[str], default: Optional[str] = None) -> str:
         if _has_questionary():
             import questionary  # type: ignore
+
             return questionary.select(message, choices=choices, default=default).ask()  # type: ignore[attr-defined]
         else:
             # Fallback simple prompt
@@ -113,6 +112,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _q_text(message: str, default: Optional[str] = None) -> str:
         if _has_questionary():
             import questionary  # type: ignore
+
             return questionary.text(message, default=default or "").ask()  # type: ignore[attr-defined]
         sfx = f" [{default}]" if default is not None else ""
         s = input(f"{message}{sfx}: ").strip()
@@ -121,12 +121,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _q_confirm(message: str, default: bool = False) -> bool:
         if _has_questionary():
             import questionary  # type: ignore
+
             return bool(questionary.confirm(message, default=default).ask())  # type: ignore[attr-defined]
         d = "y" if default else "n"
         while True:
             s = _q_text(f"{message} [y/n]", d).lower()
-            if s in ("y", "yes"): return True
-            if s in ("n", "no"): return False
+            if s in ("y", "yes"):
+                return True
+            if s in ("n", "no"):
+                return False
             print("Please answer y or n.")
 
     def _q_int(message: str, default: int) -> int:
@@ -149,6 +152,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     def _config_path() -> str:
         try:
             import platformdirs  # type: ignore
+
             cfg_dir = platformdirs.user_config_dir("helixenv", "helix")
         except Exception:
             cfg_dir = os.path.join(os.path.expanduser("~"), ".config", "helixenv")
@@ -185,6 +189,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         """Run Helix metrics using the core runner from helix.tui for structured results."""
         _ensure_helix_on_path()
         from helix.tui import _compute_metrics  # type: ignore
+
         return _compute_metrics(params, progress_cb=None)
 
     def _aggregate_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -216,7 +221,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 out.append({k: float(sum(vs) / max(1, len(vs))) for k, vs in acc.items()})
             return out
 
-        avg_gap = float(sum(float(r.get("ulam_spectral_gap", 0.0)) for r in runs) / max(1, len(runs)))
+        avg_gap = float(
+            sum(float(r.get("ulam_spectral_gap", 0.0)) for r in runs) / max(1, len(runs))
+        )
         return {
             "region_counts_avg": _avg_list_of_lists("region_counts"),
             "mass_errors_avg": _avg_list_of_lists("mass_errors"),
@@ -227,16 +234,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     def run_interactive() -> int:
         _ensure_helix_on_path()
-        from helix.cli import main as helix_main  # type: ignore
         from datetime import datetime as _dt
+
+        from helix.cli import main as helix_main  # type: ignore
 
         def _offer_export(kind: str, arg_list: List[str]) -> None:
             if not _q_confirm("Export reproducible snippet?", False):
                 return
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
             # Bash command
-            cmd = "./helix " + (kind + " " if kind else "") + " ".join(
-                json.dumps(a) if (" " in a or a.startswith("-")) else a for a in arg_list
+            cmd = (
+                "./helix "
+                + (kind + " " if kind else "")
+                + " ".join(
+                    json.dumps(a) if (" " in a or a.startswith("-")) else a for a in arg_list
+                )
             )
             # Python script
             py = (
@@ -261,16 +273,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         print("Helix Interactive CLI — choose a mode\n")
         while True:
-            choice = _q_select("Select an option", [
-                "Demo (built-in MLP)",
-                "Analyze (built-in MLP sized to data)",
-                "Analyze (custom model builder)",
-                "Sweeps (seeds/widths) and summary",
-                "TUI (interactive UI)",
-                "Pro TUI (advanced)",
-                "Load last config and re-run",
-                "Quit",
-            ], default="Demo (built-in MLP)")
+            choice = _q_select(
+                "Select an option",
+                [
+                    "Demo (built-in MLP)",
+                    "Analyze (built-in MLP sized to data)",
+                    "Analyze (custom model builder)",
+                    "Sweeps (seeds/widths) and summary",
+                    "TUI (interactive UI)",
+                    "Pro TUI (advanced)",
+                    "Load last config and re-run",
+                    "Quit",
+                ],
+                default="Demo (built-in MLP)",
+            )
             if choice in ("Quit",):
                 return 0
             if choice.startswith("Demo"):
@@ -288,18 +304,29 @@ def main(argv: Optional[List[str]] = None) -> int:
                 no_show = _q_confirm("no_show", False) if adv else False
                 save_prefix = _q_text("save_prefix", "") if adv else ""
                 args = [
-                    "--samples", str(samples),
-                    "--noise", str(noise),
-                    "--seed", str(seed),
-                    "--width", str(width),
-                    "--epochs", str(epochs),
-                    "--ulam-bins", str(ulam_bins),
-                    "--ulam-samples-per-cell", str(ulam_spc),
+                    "--samples",
+                    str(samples),
+                    "--noise",
+                    str(noise),
+                    "--seed",
+                    str(seed),
+                    "--width",
+                    str(width),
+                    "--epochs",
+                    str(epochs),
+                    "--ulam-bins",
+                    str(ulam_bins),
+                    "--ulam-samples-per-cell",
+                    str(ulam_spc),
                 ]
-                if no_train: args.append("--no-train")
-                if plot: args.append("--plot")
-                if no_show: args.append("--no-show")
-                if save_prefix: args += ["--save-prefix", save_prefix]
+                if no_train:
+                    args.append("--no-train")
+                if plot:
+                    args.append("--plot")
+                if no_show:
+                    args.append("--no-show")
+                if save_prefix:
+                    args += ["--save-prefix", save_prefix]
                 _save_cfg({"mode": "demo", "args": args})
                 rc = helix_main(args)
                 print(f"\n[done] exit code {rc}\n")
@@ -317,18 +344,29 @@ def main(argv: Optional[List[str]] = None) -> int:
                 no_ulam = _q_confirm("no_ulam", True)
                 seed = _q_int("seed", 1)
 
-                args_list: List[str] = ["analyze",
-                    "--d-out", str(d_out),
-                    "--width", str(width),
-                    "--epochs", str(epochs),
-                    "--ulam-bins", str(ulam_bins),
-                    "--ulam-samples-per-cell", str(ulam_spc),
-                    "--seed", str(seed),
+                args_list: List[str] = [
+                    "analyze",
+                    "--d-out",
+                    str(d_out),
+                    "--width",
+                    str(width),
+                    "--epochs",
+                    str(epochs),
+                    "--ulam-bins",
+                    str(ulam_bins),
+                    "--ulam-samples-per-cell",
+                    str(ulam_spc),
+                    "--seed",
+                    str(seed),
                 ]
-                if data_x: args_list += ["--data-x", data_x]
-                if data_y: args_list += ["--data-y", data_y]
-                if no_train: args_list.append("--no-train")
-                if no_ulam: args_list.append("--no-ulam")
+                if data_x:
+                    args_list += ["--data-x", data_x]
+                if data_y:
+                    args_list += ["--data-y", data_y]
+                if no_train:
+                    args_list.append("--no-train")
+                if no_ulam:
+                    args_list.append("--no-ulam")
                 _save_cfg({"mode": "analyze_builtin", "args": args_list})
                 rc = helix_main(args_list)
                 print(f"\n[done] exit code {rc}\n")
@@ -354,20 +392,33 @@ def main(argv: Optional[List[str]] = None) -> int:
                 no_ulam = _q_confirm("no_ulam", True)
                 seed = _q_int("seed", 1)
 
-                args_list: List[str] = ["analyze",
-                    "--model-module", model_module,
-                    "--model-func", model_func,
-                    "--epochs", str(epochs),
-                    "--ulam-bins", str(ulam_bins),
-                    "--ulam-samples-per-cell", str(ulam_spc),
-                    "--seed", str(seed),
+                args_list: List[str] = [
+                    "analyze",
+                    "--model-module",
+                    model_module,
+                    "--model-func",
+                    model_func,
+                    "--epochs",
+                    str(epochs),
+                    "--ulam-bins",
+                    str(ulam_bins),
+                    "--ulam-samples-per-cell",
+                    str(ulam_spc),
+                    "--seed",
+                    str(seed),
                 ]
-                if model_kwargs: args_list += ["--model-kwargs", model_kwargs]
-                if weights: args_list += ["--weights", weights]
-                if data_x: args_list += ["--data-x", data_x]
-                if data_y: args_list += ["--data-y", data_y]
-                if no_train: args_list.append("--no-train")
-                if no_ulam: args_list.append("--no-ulam")
+                if model_kwargs:
+                    args_list += ["--model-kwargs", model_kwargs]
+                if weights:
+                    args_list += ["--weights", weights]
+                if data_x:
+                    args_list += ["--data-x", data_x]
+                if data_y:
+                    args_list += ["--data-y", data_y]
+                if no_train:
+                    args_list.append("--no-train")
+                if no_ulam:
+                    args_list.append("--no-ulam")
                 _save_cfg({"mode": "analyze_custom", "args": args_list})
                 rc = helix_main(args_list)
                 print(f"\n[done] exit code {rc}\n")
@@ -431,11 +482,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("\nSweep summary:")
                 print("  region_counts_avg:", summary.get("region_counts_avg"))
                 print("  mass_errors_avg:", summary.get("mass_errors_avg"))
-                print("  ulam_spectral_gap_avg:", f"{summary.get('ulam_spectral_gap_avg', 0.0):.4f}")
+                print(
+                    "  ulam_spectral_gap_avg:", f"{summary.get('ulam_spectral_gap_avg', 0.0):.4f}"
+                )
 
                 # Export JSON
                 if _q_confirm("Export results to JSON?", True):
                     from datetime import datetime as _dt
+
                     ts = _dt.now().strftime("%Y%m%d_%H%M%S")
                     out = {
                         "summary": summary,
@@ -468,6 +522,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         here = os.path.dirname(os.path.abspath(__file__))
                         ui_path = os.path.join(here, "ui.py")
                         import importlib.util as _ilu
+
                         spec = _ilu.spec_from_file_location("helixenv_ui", ui_path)
                         if spec and spec.loader:
                             mod = _ilu.module_from_spec(spec)
@@ -519,6 +574,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 here = os.path.dirname(os.path.abspath(__file__))
                 ui_path = os.path.join(here, "ui.py")
                 import importlib.util as _ilu
+
                 spec = _ilu.spec_from_file_location("helixenv_ui", ui_path)
                 if spec and spec.loader:
                     mod = _ilu.module_from_spec(spec)

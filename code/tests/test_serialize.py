@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 import unittest
 
 import numpy as np
-
-import os
-import sys
 
 # Ensure the 'code' directory (package root for 'helix') is on sys.path
 PKG_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -16,7 +15,7 @@ if PKG_ROOT not in sys.path:
 
 class TestSerialize(unittest.TestCase):
     def test_to_jsonable_numpy(self):
-        from helix.serialize import to_jsonable, json_dumps
+        from helix.serialize import json_dumps, to_jsonable
 
         data = {
             "arr": np.array([[1, 2], [3, 4]], dtype=np.int32),
@@ -38,4 +37,3 @@ class TestSerialize(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

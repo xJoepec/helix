@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
 import importlib.util
 import os
-import time
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -57,17 +55,17 @@ def _load_config(defaults: Dict[str, Any]) -> Dict[str, Any]:
 def _compute_metrics(params: Dict[str, Any], progress_cb=None) -> Dict[str, Any]:
     # Lazy imports to avoid heavy deps at import-time
     from . import (
-        extract_partitions,
         build_V_from_incidence,
-        sanity_check_ucp,
-        ulam_pf,
-        spectral_gap,
-        region_counts,
+        extract_partitions,
         mass_consistency_errors,
+        region_counts,
+        sanity_check_ucp,
+        spectral_gap,
+        ulam_pf,
     )
+    from .cli import MLP, make_moons
     from .ktheory import k_invariants_from_B as _k_inv  # optional usage
     from .serialize import to_jsonable
-    from .cli import MLP, make_moons
 
     def step(msg: str):
         if progress_cb:
@@ -83,7 +81,9 @@ def _compute_metrics(params: Dict[str, Any], progress_cb=None) -> Dict[str, Any]
     do_ktheory = bool(params.get("ktheory", False))
 
     step("Generating dataset…")
-    X, y = make_moons(n=int(params["samples"]), noise=float(params["noise"]), seed=int(params["seed"]))
+    X, y = make_moons(
+        n=int(params["samples"]), noise=float(params["noise"]), seed=int(params["seed"])
+    )
 
     step("Building model…")
     width = int(params["width"])
@@ -174,13 +174,15 @@ def _compute_metrics(params: Dict[str, Any], progress_cb=None) -> Dict[str, Any]
             n_prev, n_cur = B.shape
             nnz = int(B.sum())
             parent_ptrs = int(len(af.parent_of_list[k - 1]))
-            sparse_stats.append({
-                "depth": k,
-                "shape": [n_prev, n_cur],
-                "nnz": nnz,
-                "parent_ptrs": parent_ptrs,
-                "sparsity": float(1.0 - (nnz / max(1, n_prev * n_cur))),
-            })
+            sparse_stats.append(
+                {
+                    "depth": k,
+                    "shape": [n_prev, n_cur],
+                    "nnz": nnz,
+                    "parent_ptrs": parent_ptrs,
+                    "sparsity": float(1.0 - (nnz / max(1, n_prev * n_cur))),
+                }
+            )
 
     k_list: Optional[List[Dict[str, Any]]] = None
     if do_ktheory and af is not None:
@@ -189,13 +191,15 @@ def _compute_metrics(params: Dict[str, Any], progress_cb=None) -> Dict[str, Any]
         for k, B in enumerate(af.B_list, start=1):
             try:
                 inv = _k_inv(B)
-                k_list.append({
-                    "depth": k,
-                    "rank": int(inv.get("rank", 0)),
-                    "nullity": int(inv.get("nullity", 0)),
-                    "torsion": [int(t) for t in inv.get("torsion", [])],
-                    "S_diag": [int(d) for d in inv.get("S_diag", [])],
-                })
+                k_list.append(
+                    {
+                        "depth": k,
+                        "rank": int(inv.get("rank", 0)),
+                        "nullity": int(inv.get("nullity", 0)),
+                        "torsion": [int(t) for t in inv.get("torsion", [])],
+                        "S_diag": [int(d) for d in inv.get("S_diag", [])],
+                    }
+                )
             except Exception as e:
                 k_list.append({"depth": k, "error": str(e)})
 
@@ -221,9 +225,13 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
         print("Textual is not installed. Install Helix TUI extras: pip install '.[tui]'")
         return 1
 
+    from textual import on
     from textual.app import App, ComposeResult
+    from textual.containers import Horizontal, Vertical, VerticalScroll
     from textual.widgets import (
         Button,
+        Checkbox,
+        DataTable,
         Footer,
         Header,
         Input,
@@ -232,11 +240,7 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
         ProgressBar,
         Static,
         Switch,
-        Checkbox,
-        DataTable,
     )
-    from textual.containers import Horizontal, Vertical, VerticalScroll
-    from textual import on
 
     DEFAULTS = {
         "samples": 4000,
@@ -306,9 +310,13 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                     yield Input(str(self.params["width"]), placeholder="width", id="width")
                     yield Input(str(self.params["epochs"]), placeholder="epochs", id="epochs")
                 with Horizontal():
-                    yield Switch(value=bool(self.params["no_train"]), id="no_train", name="no_train")
+                    yield Switch(
+                        value=bool(self.params["no_train"]), id="no_train", name="no_train"
+                    )
                     yield Label("no_train")
-                    yield Input(str(self.params["ulam_bins"]), placeholder="ulam_bins", id="ulam_bins")
+                    yield Input(
+                        str(self.params["ulam_bins"]), placeholder="ulam_bins", id="ulam_bins"
+                    )
                     yield Input(
                         str(self.params["ulam_samples_per_cell"]),
                         placeholder="ulam_samples_per_cell",
@@ -344,7 +352,10 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                 yield Static("Loading help…", id="help_text")
             with Horizontal(id="cmdbar"):
                 yield Label(":")
-                yield Input(placeholder="run | set samples=2000 | toggle cp | export csv | help", id="cmdline")
+                yield Input(
+                    placeholder="run | set samples=2000 | toggle cp | export csv | help",
+                    id="cmdline",
+                )
             yield Log(id="logbox")
             yield Footer()
 
@@ -414,7 +425,9 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
 
             def work():
                 try:
-                    return _compute_metrics(self.params, progress_cb=lambda m: self.call_from_thread(self._progress, m))
+                    return _compute_metrics(
+                        self.params, progress_cb=lambda m: self.call_from_thread(self._progress, m)
+                    )
                 except Exception as e:  # pragma: no cover
                     self.call_from_thread(log.write_line, f"Error: {e}")
                     return None
@@ -467,7 +480,9 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             self.query_one("#epochs", Input).value = str(self.params["epochs"])  # type: ignore[attr-defined]
             self.query_one("#no_train", Switch).value = bool(self.params["no_train"])  # type: ignore[attr-defined]
             self.query_one("#ulam_bins", Input).value = str(self.params["ulam_bins"])  # type: ignore[attr-defined]
-            self.query_one("#ulam_samples_per_cell", Input).value = str(self.params["ulam_samples_per_cell"])  # type: ignore[attr-defined]
+            self.query_one("#ulam_samples_per_cell", Input).value = str(
+                self.params["ulam_samples_per_cell"]
+            )  # type: ignore[attr-defined]
             self.query_one("#ulam_eps", Input).value = str(self.params["ulam_eps"])  # type: ignore[attr-defined]
             for k in ("regions", "mass", "cp", "ulam", "sparse", "ktheory"):
                 self.query_one(f"#{k}", Checkbox).value = bool(self.params[k])  # type: ignore[attr-defined]
@@ -481,10 +496,15 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             fn = f"helix_metrics_{ts}.json"
             with open(fn, "w", encoding="utf-8") as f:
-                f.write(json_dumps({
-                    "config": self.params,
-                    "metrics": self._last_metrics,
-                }, indent=2))
+                f.write(
+                    json_dumps(
+                        {
+                            "config": self.params,
+                            "metrics": self._last_metrics,
+                        },
+                        indent=2,
+                    )
+                )
             self._last_path = os.path.abspath(fn)
             self.query_one("#logbox", Log).write_line(f"Exported to {self._last_path}")
 
@@ -497,8 +517,13 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                 pass
             try:
                 txt = self.query_one("#help_text", Static)
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-                paths = [os.path.join(root, "docs", "applications.md"), os.path.join(root, "uses.md")]
+                root = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+                )
+                paths = [
+                    os.path.join(root, "docs", "applications.md"),
+                    os.path.join(root, "uses.md"),
+                ]
                 buf = []
                 for p in paths:
                     try:
@@ -522,13 +547,27 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             k = key.strip().lower()
             v = val.strip()
             try:
-                if k in {"samples", "seed", "width", "epochs", "ulam_bins", "ulam_samples_per_cell"}:
+                if k in {
+                    "samples",
+                    "seed",
+                    "width",
+                    "epochs",
+                    "ulam_bins",
+                    "ulam_samples_per_cell",
+                }:
                     self.query_one(f"#{k}", Input).value = str(int(float(v)))  # type: ignore[attr-defined]
                 elif k in {"noise", "ulam_eps"}:
                     self.query_one(f"#{k}", Input).value = str(float(v))  # type: ignore[attr-defined]
                 elif k in {"no_train", "regions", "mass", "cp", "ulam", "sparse", "ktheory"}:
                     from textual.widgets import Checkbox as _CB
-                    self.query_one(f"#{k}", _CB).value = v.lower() in {"1", "true", "yes", "y", "on"}  # type: ignore[attr-defined]
+
+                    self.query_one(f"#{k}", _CB).value = v.lower() in {
+                        "1",
+                        "true",
+                        "yes",
+                        "y",
+                        "on",
+                    }  # type: ignore[attr-defined]
                 else:
                     self.query_one("#logbox", Log).write_line(f"Unknown key: {k}")
                     return
@@ -538,6 +577,7 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
 
         def _cmd_toggle(self, key: str) -> None:
             from textual.widgets import Checkbox as _CB
+
             try:
                 cb = self.query_one(f"#{key}", _CB)
                 cb.value = not bool(cb.value)
@@ -578,8 +618,6 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                 return
             self.query_one("#logbox", Log).write_line(f"Unknown command: {s}")
 
-        from textual import on
-
         @on(Input.Submitted, "#cmdline")
         def _on_cmdline(self, ev: Input.Submitted) -> None:  # type: ignore
             self._cmd_exec(ev.value or "")
@@ -603,28 +641,52 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             m = self._last_metrics
             # Regions
             if "region_counts" in m:
-                rows = [[i + 1, v] for i, v in enumerate(m["region_counts"]) ]
+                rows = [[i + 1, v] for i, v in enumerate(m["region_counts"])]
                 w("regions.csv", ["depth", "regions"], rows)
             # Mass
             if "mass_errors" in m:
-                rows = [[i + 1, v] for i, v in enumerate(m["mass_errors"]) ]
+                rows = [[i + 1, v] for i, v in enumerate(m["mass_errors"])]
                 w("mass.csv", ["depth", "l1_error"], rows)
             # CP stats
             if "cp_stats" in m:
                 rows = []
                 for i, s in enumerate(m["cp_stats"], start=1):
-                    rows.append([i, s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)])
+                    rows.append(
+                        [
+                            i,
+                            s.get("unital_err_fro", 0.0),
+                            s.get("coisometry_err_fro", 0.0),
+                            s.get("psd_min_eig_violation", 0.0),
+                        ]
+                    )
                 w("cp.csv", ["depth", "unital", "coiso", "psd_vio"], rows)
             # Ulam
             if "ulam_spectral_gap" in m:
-                w("ulam.csv", ["metric", "value"], [["spectral_gap", f"{float(m['ulam_spectral_gap']):.4f}"]])
+                w(
+                    "ulam.csv",
+                    ["metric", "value"],
+                    [["spectral_gap", f"{float(m['ulam_spectral_gap']):.4f}"]],
+                )
             # Sparse
             if "sparse_stats" in m:
                 rows = []
                 for d in m["sparse_stats"]:
                     n_prev, n_cur = d.get("shape", [0, 0])
-                    rows.append([d.get("depth", 0), n_prev, n_cur, d.get("nnz", 0), d.get("parent_ptrs", 0), f"{float(d.get('sparsity', 0.0)):.4%}"])
-                w("sparse.csv", ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"], rows)
+                    rows.append(
+                        [
+                            d.get("depth", 0),
+                            n_prev,
+                            n_cur,
+                            d.get("nnz", 0),
+                            d.get("parent_ptrs", 0),
+                            f"{float(d.get('sparsity', 0.0)):.4%}",
+                        ]
+                    )
+                w(
+                    "sparse.csv",
+                    ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"],
+                    rows,
+                )
             # K-theory
             if "k_invariants" in m:
                 rows = []
@@ -632,7 +694,15 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                     if "error" in ki:
                         rows.append([ki.get("depth", 0), "error", ki.get("error", "")])
                     else:
-                        rows.append([ki.get("depth", 0), ki.get("rank", 0), ki.get("nullity", 0), ";".join(map(str, ki.get("torsion", []))), ";".join(map(str, ki.get("S_diag", [])))])
+                        rows.append(
+                            [
+                                ki.get("depth", 0),
+                                ki.get("rank", 0),
+                                ki.get("nullity", 0),
+                                ";".join(map(str, ki.get("torsion", []))),
+                                ";".join(map(str, ki.get("S_diag", []))),
+                            ]
+                        )
                 w("ktheory.csv", ["depth", "rank", "nullity", "torsion", "S_diag"], rows)
             for p in out_files:
                 self.query_one("#logbox", Log).write_line(f"Exported {p}")
@@ -648,7 +718,11 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             # Regions
             dt = self.query_one("#t_regions", DataTable)
             if "region_counts" in res:
-                setup(dt, ["depth", "regions"], [[i + 1, v] for i, v in enumerate(res["region_counts"])])
+                setup(
+                    dt,
+                    ["depth", "regions"],
+                    [[i + 1, v] for i, v in enumerate(res["region_counts"])],
+                )
                 dt.display = True
             else:
                 dt.display = False
@@ -656,7 +730,11 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             # Mass
             dt = self.query_one("#t_mass", DataTable)
             if "mass_errors" in res:
-                setup(dt, ["depth", "l1_error"], [[i + 1, v] for i, v in enumerate(res["mass_errors"])])
+                setup(
+                    dt,
+                    ["depth", "l1_error"],
+                    [[i + 1, v] for i, v in enumerate(res["mass_errors"])],
+                )
                 dt.display = True
             else:
                 dt.display = False
@@ -666,7 +744,14 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             if "cp_stats" in res:
                 rows = []
                 for i, s in enumerate(res["cp_stats"], start=1):
-                    rows.append([i, s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)])
+                    rows.append(
+                        [
+                            i,
+                            s.get("unital_err_fro", 0.0),
+                            s.get("coisometry_err_fro", 0.0),
+                            s.get("psd_min_eig_violation", 0.0),
+                        ]
+                    )
                 setup(dt, ["depth", "unital", "coiso", "psd_vio"], rows)
                 dt.display = True
             else:
@@ -675,7 +760,11 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
             # Ulam
             dt = self.query_one("#t_ulam", DataTable)
             if "ulam_spectral_gap" in res:
-                setup(dt, ["metric", "value"], [["spectral_gap", f"{float(res['ulam_spectral_gap']):.4f}"]])
+                setup(
+                    dt,
+                    ["metric", "value"],
+                    [["spectral_gap", f"{float(res['ulam_spectral_gap']):.4f}"]],
+                )
                 dt.display = True
             else:
                 dt.display = False
@@ -686,7 +775,16 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                 rows = []
                 for d in res["sparse_stats"]:
                     n_prev, n_cur = d.get("shape", [0, 0])
-                    rows.append([d.get("depth", 0), n_prev, n_cur, d.get("nnz", 0), d.get("parent_ptrs", 0), f"{float(d.get('sparsity', 0.0)):.2%}"])
+                    rows.append(
+                        [
+                            d.get("depth", 0),
+                            n_prev,
+                            n_cur,
+                            d.get("nnz", 0),
+                            d.get("parent_ptrs", 0),
+                            f"{float(d.get('sparsity', 0.0)):.2%}",
+                        ]
+                    )
                 setup(dt, ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"], rows)
                 dt.display = True
             else:
@@ -700,7 +798,15 @@ def run_tui(argv: Optional[List[str]] = None) -> int:
                     if "error" in ki:
                         rows.append([ki.get("depth", 0), "error", ki.get("error", "")])
                     else:
-                        rows.append([ki.get("depth", 0), ki.get("rank", 0), ki.get("nullity", 0), ",".join(map(str, ki.get("torsion", []))), ",".join(map(str, ki.get("S_diag", [])))])
+                        rows.append(
+                            [
+                                ki.get("depth", 0),
+                                ki.get("rank", 0),
+                                ki.get("nullity", 0),
+                                ",".join(map(str, ki.get("torsion", []))),
+                                ",".join(map(str, ki.get("S_diag", []))),
+                            ]
+                        )
                 setup(dt, ["depth", "rank", "nullity", "torsion", "S_diag"], rows)
                 dt.display = True
             else:

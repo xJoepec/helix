@@ -7,13 +7,12 @@ An advanced terminal UI for Helix that wires presets from uses.md, shows
 structured tables, and exports JSON summaries. Requires `textual`.
 """
 
-from typing import Any, Dict, List, Optional
-
 import importlib.util
 import json
 import os
 import sys
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 def _ensure_helix_on_path() -> None:
@@ -31,6 +30,7 @@ def _pro_user_config_path() -> str:
     """Return a user config path for Pro TUI settings."""
     try:
         import platformdirs  # type: ignore
+
         cfg_dir = platformdirs.user_config_dir("helix", "helix")
     except Exception:
         cfg_dir = os.path.join(os.path.expanduser("~"), ".config", "helix")
@@ -57,20 +57,22 @@ def _pro_load_config() -> Dict[str, Any]:
         return {}
 
 
-def _compute_pro_metrics(params: Dict[str, Any], which: Dict[str, bool], progress_cb=None) -> Dict[str, Any]:
+def _compute_pro_metrics(
+    params: Dict[str, Any], which: Dict[str, bool], progress_cb=None
+) -> Dict[str, Any]:
     """Compute metrics according to selected presets. Returns JSONable dict."""
     _ensure_helix_on_path()
     import numpy as np
-    from helix.cli import MLP, make_moons
     from helix import (
-        extract_partitions,
-        region_counts,
-        mass_consistency_errors,
         build_V_from_incidence,
+        extract_partitions,
+        mass_consistency_errors,
+        region_counts,
         sanity_check_ucp,
-        ulam_pf,
         spectral_gap,
+        ulam_pf,
     )
+    from helix.cli import MLP, make_moons
     from helix.ktheory import k_invariants_from_B
 
     def step(msg: str):
@@ -79,7 +81,11 @@ def _compute_pro_metrics(params: Dict[str, Any], which: Dict[str, bool], progres
 
     # Data + model
     step("Generating dataset…")
-    X, y = make_moons(n=int(params.get("samples", 4000)), noise=float(params.get("noise", 0.07)), seed=int(params.get("seed", 1)))
+    X, y = make_moons(
+        n=int(params.get("samples", 4000)),
+        noise=float(params.get("noise", 0.07)),
+        seed=int(params.get("seed", 1)),
+    )
     width = int(params.get("width", 16))
     epochs = int(params.get("epochs", 100))
     no_train = bool(params.get("no_train", False))
@@ -107,7 +113,13 @@ def _compute_pro_metrics(params: Dict[str, Any], which: Dict[str, bool], progres
     # Extract partitions if any of region/mass/cp/k requested
     results: Dict[str, Any] = {}
     af = None
-    if which.get("regions") or which.get("mass") or which.get("cp") or which.get("ktheory") or which.get("sparse"):
+    if (
+        which.get("regions")
+        or which.get("mass")
+        or which.get("cp")
+        or which.get("ktheory")
+        or which.get("sparse")
+    ):
         step("Extracting partitions…")
         af = extract_partitions(model, X)
 
@@ -159,13 +171,15 @@ def _compute_pro_metrics(params: Dict[str, Any], which: Dict[str, bool], progres
         for k, B in enumerate(af.B_list, start=1):
             try:
                 inv = k_invariants_from_B(B)
-                k_list.append({
-                    "depth": k,
-                    "rank": int(inv.get("rank", 0)),
-                    "nullity": int(inv.get("nullity", 0)),
-                    "torsion": list(map(int, inv.get("torsion", []))),
-                    "S_diag": list(map(int, inv.get("S_diag", []))),
-                })
+                k_list.append(
+                    {
+                        "depth": k,
+                        "rank": int(inv.get("rank", 0)),
+                        "nullity": int(inv.get("nullity", 0)),
+                        "torsion": list(map(int, inv.get("torsion", []))),
+                        "S_diag": list(map(int, inv.get("S_diag", []))),
+                    }
+                )
             except Exception as e:
                 k_list.append({"depth": k, "error": str(e)})
         results["k_invariants"] = k_list
@@ -177,15 +191,17 @@ def _compute_pro_metrics(params: Dict[str, Any], which: Dict[str, bool], progres
             n_prev, n_cur = B.shape
             nnz = int(B.sum())
             parent_ptrs = int(len(af.parent_of_list[k - 1]))
-            sparse.append({
-                "depth": k,
-                "shape": [n_prev, n_cur],
-                "nnz": nnz,
-                "parent_ptrs": parent_ptrs,
-                "dense_bytes": int(n_prev * n_cur),
-                "parent_bytes": int(parent_ptrs),
-                "sparsity": float(1.0 - (nnz / max(1, n_prev * n_cur))),
-            })
+            sparse.append(
+                {
+                    "depth": k,
+                    "shape": [n_prev, n_cur],
+                    "nnz": nnz,
+                    "parent_ptrs": parent_ptrs,
+                    "dense_bytes": int(n_prev * n_cur),
+                    "parent_bytes": int(parent_ptrs),
+                    "sparsity": float(1.0 - (nnz / max(1, n_prev * n_cur))),
+                }
+            )
         results["sparse_stats"] = sparse
 
     results["config"] = params.copy()
@@ -198,21 +214,21 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         return 1
 
     _ensure_helix_on_path()
+    from textual import on
     from textual.app import App, ComposeResult
+    from textual.containers import Horizontal, Vertical, VerticalScroll
     from textual.widgets import (
         Button,
+        Checkbox,
+        DataTable,
         Footer,
         Header,
         Input,
         Label,
         Log,
         ProgressBar,
-        Checkbox,
         Static,
-        DataTable,
     )
-    from textual.containers import Horizontal, Vertical, VerticalScroll
-    from textual import on
 
     DEFAULTS = {
         "samples": 4000,
@@ -324,37 +340,77 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 with Vertical(id="center"):
                     yield Label("Parameters")
                     with Horizontal():
-                        yield Input(str(self.params["samples"]), placeholder="samples", id="samples")
+                        yield Input(
+                            str(self.params["samples"]), placeholder="samples", id="samples"
+                        )
                         yield Input(str(self.params["noise"]), placeholder="noise", id="noise")
                         yield Input(str(self.params["seed"]), placeholder="seed", id="seed")
                         yield Input(str(self.params["width"]), placeholder="width", id="width")
                         yield Input(str(self.params["epochs"]), placeholder="epochs", id="epochs")
                     with Horizontal():
-                        yield Checkbox("no_train", value=bool(self.params["no_train"]), id="no_train")
-                        yield Input(str(self.params["ulam_bins"]), placeholder="ulam_bins", id="ulam_bins")
-                        yield Input(str(self.params["ulam_samples_per_cell"]), placeholder="ulam_samples_per_cell", id="ulam_samples_per_cell")
-                        yield Input(str(self.params["ulam_eps"]), placeholder="ulam_eps", id="ulam_eps")
+                        yield Checkbox(
+                            "no_train", value=bool(self.params["no_train"]), id="no_train"
+                        )
+                        yield Input(
+                            str(self.params["ulam_bins"]), placeholder="ulam_bins", id="ulam_bins"
+                        )
+                        yield Input(
+                            str(self.params["ulam_samples_per_cell"]),
+                            placeholder="ulam_samples_per_cell",
+                            id="ulam_samples_per_cell",
+                        )
+                        yield Input(
+                            str(self.params["ulam_eps"]), placeholder="ulam_eps", id="ulam_eps"
+                        )
                     with Horizontal():
                         yield Input("1,2,3", placeholder="sweep_seeds", id="sweep_seeds")
                         yield Input("8,16,32", placeholder="sweep_widths", id="sweep_widths")
-                        yield Input(self.params.get("export_dir", ""), placeholder="export_dir (optional)", id="export_dir")
+                        yield Input(
+                            self.params.get("export_dir", ""),
+                            placeholder="export_dir (optional)",
+                            id="export_dir",
+                        )
                         yield Input("run1", placeholder="run_label", id="run_label")
                     with Horizontal():
-                        yield Input(self._api_mem.get("api_key_var", "OPENAI_API_KEY"), placeholder="api_key_var", id="api_key_var")
+                        yield Input(
+                            self._api_mem.get("api_key_var", "OPENAI_API_KEY"),
+                            placeholder="api_key_var",
+                            id="api_key_var",
+                        )
                         yield Input("", placeholder="api_key (hidden)", id="api_key")
-                        yield Input(self._api_mem.get("api_base_url", ""), placeholder="api_base_url (optional)", id="api_base_url")
+                        yield Input(
+                            self._api_mem.get("api_base_url", ""),
+                            placeholder="api_base_url (optional)",
+                            id="api_base_url",
+                        )
                     with Horizontal():
-                        yield Input(self._api_mem.get("api_model_var", "OPENAI_MODEL"), placeholder="api_model_var", id="api_model_var")
-                        yield Input(self._api_mem.get("api_model", ""), placeholder="api_model (e.g., gpt-4o-mini, llama-3)", id="api_model")
+                        yield Input(
+                            self._api_mem.get("api_model_var", "OPENAI_MODEL"),
+                            placeholder="api_model_var",
+                            id="api_model_var",
+                        )
+                        yield Input(
+                            self._api_mem.get("api_model", ""),
+                            placeholder="api_model (e.g., gpt-4o-mini, llama-3)",
+                            id="api_model",
+                        )
                     with Horizontal():
-                        yield Input(self._api_mem.get("provider", "openai"), placeholder="provider (openai|anthropic|openrouter|local|azure-openai)", id="provider")
+                        yield Input(
+                            self._api_mem.get("provider", "openai"),
+                            placeholder="provider (openai|anthropic|openrouter|local|azure-openai)",
+                            id="provider",
+                        )
                         yield Button("Apply Provider", id="apply_provider")
                     yield Label("Verifiers Eval — helixenv")
                     with Horizontal():
                         # Environment fixed to helixenv; mode and answer mode configurable
                         yield Static("env_id=helixenv")
-                        yield Input("mcq", placeholder="eval_answer_mode (mcq|open)", id="eval_answer_mode")
-                        yield Input("zero_shot", placeholder="eval_mode (zero_shot|agentic)", id="eval_mode")
+                        yield Input(
+                            "mcq", placeholder="eval_answer_mode (mcq|open)", id="eval_answer_mode"
+                        )
+                        yield Input(
+                            "zero_shot", placeholder="eval_mode (zero_shot|agentic)", id="eval_mode"
+                        )
                         yield Input("8", placeholder="eval_max_episodes", id="eval_max_episodes")
                     with Horizontal():
                         yield Checkbox("shuffle_options", value=True, id="eval_shuffle_options")
@@ -363,7 +419,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                         yield Input("42", placeholder="seed", id="eval_seed")
                         yield Input("10", placeholder="max_turns (agentic)", id="eval_max_turns")
                     with Horizontal():
-                        yield Input("", placeholder="system_prompt (optional)", id="eval_system_prompt")
+                        yield Input(
+                            "", placeholder="system_prompt (optional)", id="eval_system_prompt"
+                        )
                         yield Checkbox("enforce_format", value=True, id="eval_enforce_format")
                         yield Button("Run Eval (vf-eval)", id="eval_btn")
                     yield Label("Expected Output Format")
@@ -387,7 +445,10 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                         yield Static("Loading help…", id="help_text")
                     with Horizontal(id="cmdbar"):
                         yield Label(":")
-                        yield Input(placeholder="run | sweep seeds=1,2 widths=8,16 | set samples=2000 | export bundle | preset health", id="cmdline")
+                        yield Input(
+                            placeholder="run | sweep seeds=1,2 widths=8,16 | set samples=2000 | export bundle | preset health",
+                            id="cmdline",
+                        )
                     yield Static("Compare")
                     yield DataTable(id="t_regions_cmp")
                     yield DataTable(id="t_mass_cmp")
@@ -466,7 +527,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
 
             def work():
                 try:
-                    return _compute_pro_metrics(self.params, self.which, progress_cb=lambda m: self.call_from_thread(self._progress, m))
+                    return _compute_pro_metrics(
+                        self.params,
+                        self.which,
+                        progress_cb=lambda m: self.call_from_thread(self._progress, m),
+                    )
                 except Exception as e:  # pragma: no cover
                     self.call_from_thread(self._log, f"Error: {e}")
                     return None
@@ -483,7 +548,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 # Regions
                 dt = self.query_one("#t_regions", DataTable)
                 if "region_counts" in res:
-                    setup(dt, ["depth", "regions"], [[i+1, v] for i, v in enumerate(res["region_counts"])])
+                    setup(
+                        dt,
+                        ["depth", "regions"],
+                        [[i + 1, v] for i, v in enumerate(res["region_counts"])],
+                    )
                     dt.display = True
                 else:
                     dt.display = False
@@ -491,7 +560,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 # Mass
                 dt = self.query_one("#t_mass", DataTable)
                 if "mass_errors" in res:
-                    setup(dt, ["depth", "l1_error"], [[i+1, v] for i, v in enumerate(res["mass_errors"])])
+                    setup(
+                        dt,
+                        ["depth", "l1_error"],
+                        [[i + 1, v] for i, v in enumerate(res["mass_errors"])],
+                    )
                     dt.display = True
                 else:
                     dt.display = False
@@ -501,7 +574,14 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 if "cp_stats" in res:
                     rows = []
                     for i, s in enumerate(res["cp_stats"], start=1):
-                        rows.append([i, s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)])
+                        rows.append(
+                            [
+                                i,
+                                s.get("unital_err_fro", 0.0),
+                                s.get("coisometry_err_fro", 0.0),
+                                s.get("psd_min_eig_violation", 0.0),
+                            ]
+                        )
                     setup(dt, ["depth", "unital", "coiso", "psd_vio"], rows)
                     dt.display = True
                 else:
@@ -510,7 +590,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 # Ulam
                 dt = self.query_one("#t_ulam", DataTable)
                 if "ulam_spectral_gap" in res:
-                    setup(dt, ["metric", "value"], [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]])
+                    setup(
+                        dt,
+                        ["metric", "value"],
+                        [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]],
+                    )
                     dt.display = True
                 else:
                     dt.display = False
@@ -521,7 +605,16 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     rows = []
                     for d in res["sparse_stats"]:
                         n_prev, n_cur = d.get("shape", [0, 0])
-                        rows.append([d.get("depth", 0), n_prev, n_cur, d.get("nnz", 0), d.get("parent_ptrs", 0), f"{float(d.get('sparsity', 0.0)):.2%}"])
+                        rows.append(
+                            [
+                                d.get("depth", 0),
+                                n_prev,
+                                n_cur,
+                                d.get("nnz", 0),
+                                d.get("parent_ptrs", 0),
+                                f"{float(d.get('sparsity', 0.0)):.2%}",
+                            ]
+                        )
                     setup(dt, ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"], rows)
                     dt.display = True
                 else:
@@ -535,7 +628,15 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                         if "error" in ki:
                             rows.append([ki.get("depth", 0), "error", ki.get("error", "")])
                         else:
-                            rows.append([ki.get("depth", 0), ki.get("rank", 0), ki.get("nullity", 0), ",".join(map(str, ki.get("torsion", []))), ",".join(map(str, ki.get("S_diag", [])))])
+                            rows.append(
+                                [
+                                    ki.get("depth", 0),
+                                    ki.get("rank", 0),
+                                    ki.get("nullity", 0),
+                                    ",".join(map(str, ki.get("torsion", []))),
+                                    ",".join(map(str, ki.get("S_diag", []))),
+                                ]
+                            )
                     # If errors present, columns differ; unify by using strings
                     setup(dt, ["depth", "rank", "nullity", "torsion", "S_diag"], rows)
                     dt.display = True
@@ -560,28 +661,36 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     for s in res["cp_stats"]:
                         self._log(
                             "[CP] unital={:.2e} coiso={:.2e} psd_vio={:.2e}".format(
-                                s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)
+                                s.get("unital_err_fro", 0.0),
+                                s.get("coisometry_err_fro", 0.0),
+                                s.get("psd_min_eig_violation", 0.0),
                             )
                         )
                 if "ulam_spectral_gap" in res:
                     self._log(f"[ULAM] gap: {res['ulam_spectral_gap']:.4f}")
                 if "sparse_stats" in res:
                     for d in res["sparse_stats"]:
-                        self._log(f"[SPARSE] depth={d['depth']} shape={tuple(d['shape'])} nnz={d['nnz']} parents={d['parent_ptrs']} sparsity={d['sparsity']:.2%}")
+                        self._log(
+                            f"[SPARSE] depth={d['depth']} shape={tuple(d['shape'])} nnz={d['nnz']} parents={d['parent_ptrs']} sparsity={d['sparsity']:.2%}"
+                        )
                 if "k_invariants" in res:
                     for ki in res["k_invariants"]:
                         if "error" in ki:
                             self._log(f"[K] depth={ki['depth']} error={ki['error']}")
                         else:
-                            self._log(f"[K] depth={ki['depth']} rank={ki['rank']} nullity={ki['nullity']} torsion={ki['torsion']}")
+                            self._log(
+                                f"[K] depth={ki['depth']} rank={ki['rank']} nullity={ki['nullity']} torsion={ki['torsion']}"
+                            )
                 _populate_tables(res)
                 self._populate_compare_tables()
 
             # Use plain threading to avoid Textual Worker API differences
             import threading
+
             def _runner():
                 res = work()
                 self.call_from_thread(done, res)
+
             threading.Thread(target=_runner, daemon=True, name="helix-pro-run").start()
 
         def _resolve_dir(self) -> str:
@@ -610,6 +719,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             prefix = f"helix_pro_{ts}_"
             base = self._resolve_dir()
+
             def w(name: str, header: List[str], rows: List[List[Any]]):
                 path = os.path.join(base, prefix + name)
                 with open(path, "w", encoding="utf-8") as f:
@@ -621,33 +731,58 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             res = self._last
             # Regions
             if "region_counts" in res:
-                w("regions.csv", ["depth", "regions"], [[i+1, v] for i, v in enumerate(res["region_counts"])])
+                w(
+                    "regions.csv",
+                    ["depth", "regions"],
+                    [[i + 1, v] for i, v in enumerate(res["region_counts"])],
+                )
             # Mass
             if "mass_errors" in res:
-                w("mass.csv", ["depth", "l1_error"], [[i+1, v] for i, v in enumerate(res["mass_errors"])])
+                w(
+                    "mass.csv",
+                    ["depth", "l1_error"],
+                    [[i + 1, v] for i, v in enumerate(res["mass_errors"])],
+                )
             # CP
             if "cp_stats" in res:
                 rows = []
                 for i, s in enumerate(res["cp_stats"], start=1):
-                    rows.append([i, s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)])
+                    rows.append(
+                        [
+                            i,
+                            s.get("unital_err_fro", 0.0),
+                            s.get("coisometry_err_fro", 0.0),
+                            s.get("psd_min_eig_violation", 0.0),
+                        ]
+                    )
                 w("cp.csv", ["depth", "unital", "coiso", "psd_vio"], rows)
             # Ulam
             if "ulam_spectral_gap" in res:
-                w("ulam.csv", ["metric", "value"], [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]])
+                w(
+                    "ulam.csv",
+                    ["metric", "value"],
+                    [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]],
+                )
             # Sparse
             if "sparse_stats" in res:
                 rows = []
                 for d in res["sparse_stats"]:
                     n_prev, n_cur = d.get("shape", [0, 0])
-                    rows.append([
-                        d.get("depth", 0),
-                        n_prev,
-                        n_cur,
-                        d.get("nnz", 0),
-                        d.get("parent_ptrs", 0),
-                        f"{float(d.get('sparsity', 0.0)):.4%}",
-                    ])
-                w("sparse.csv", ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"], rows)
+                    rows.append(
+                        [
+                            d.get("depth", 0),
+                            n_prev,
+                            n_cur,
+                            d.get("nnz", 0),
+                            d.get("parent_ptrs", 0),
+                            f"{float(d.get('sparsity', 0.0)):.4%}",
+                        ]
+                    )
+                w(
+                    "sparse.csv",
+                    ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"],
+                    rows,
+                )
             # K theory
             if "k_invariants" in res:
                 rows = []
@@ -655,14 +790,24 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     if "error" in ki:
                         rows.append([ki.get("depth", 0), "error", ki.get("error", ""), "", ""])
                     else:
-                        rows.append([ki.get("depth", 0), ki.get("rank", 0), ki.get("nullity", 0), ";".join(map(str, ki.get("torsion", []))), ";".join(map(str, ki.get("S_diag", [])))])
+                        rows.append(
+                            [
+                                ki.get("depth", 0),
+                                ki.get("rank", 0),
+                                ki.get("nullity", 0),
+                                ";".join(map(str, ki.get("torsion", []))),
+                                ";".join(map(str, ki.get("S_diag", []))),
+                            ]
+                        )
                 w("ktheory.csv", ["depth", "rank", "nullity", "torsion", "S_diag"], rows)
 
         def action_export_bundle(self) -> None:
             if not self._last:
                 self._log("Nothing to export yet.")
                 return
-            import zipfile, tempfile
+            import tempfile
+            import zipfile
+
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             base_dir = self._resolve_dir()
             bundle = os.path.join(base_dir, f"helix_bundle_{ts}.zip")
@@ -673,11 +818,26 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 "params": self.params,
                 "which": self.which,
                 "api": {
-                    "api_key_var": (self.query_one("#api_key_var", Input).value or self._api_mem.get("api_key_var", "")),
-                    "api_base_url": (self.query_one("#api_base_url", Input).value or self._api_mem.get("api_base_url", "")),
-                    "api_model_var": (self.query_one("#api_model_var", Input).value or self._api_mem.get("api_model_var", "")),
-                    "api_model": (self.query_one("#api_model", Input).value or self._api_mem.get("api_model", "")),
-                    "provider": (self.query_one("#provider", Input).value or self._api_mem.get("provider", "")),
+                    "api_key_var": (
+                        self.query_one("#api_key_var", Input).value
+                        or self._api_mem.get("api_key_var", "")
+                    ),
+                    "api_base_url": (
+                        self.query_one("#api_base_url", Input).value
+                        or self._api_mem.get("api_base_url", "")
+                    ),
+                    "api_model_var": (
+                        self.query_one("#api_model_var", Input).value
+                        or self._api_mem.get("api_model_var", "")
+                    ),
+                    "api_model": (
+                        self.query_one("#api_model", Input).value
+                        or self._api_mem.get("api_model", "")
+                    ),
+                    "provider": (
+                        self.query_one("#provider", Input).value
+                        or self._api_mem.get("provider", "")
+                    ),
                 },
             }
             with open(os.path.join(tmpdir, "config.json"), "w", encoding="utf-8") as f:
@@ -697,29 +857,69 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
 
             res = self._last
             if "region_counts" in res:
-                wcsv("regions.csv", ["depth", "regions"], [[i+1, v] for i, v in enumerate(res["region_counts"])])
+                wcsv(
+                    "regions.csv",
+                    ["depth", "regions"],
+                    [[i + 1, v] for i, v in enumerate(res["region_counts"])],
+                )
             if "mass_errors" in res:
-                wcsv("mass.csv", ["depth", "l1_error"], [[i+1, v] for i, v in enumerate(res["mass_errors"])])
+                wcsv(
+                    "mass.csv",
+                    ["depth", "l1_error"],
+                    [[i + 1, v] for i, v in enumerate(res["mass_errors"])],
+                )
             if "cp_stats" in res:
                 rows = []
                 for i, s in enumerate(res["cp_stats"], start=1):
-                    rows.append([i, s.get("unital_err_fro", 0.0), s.get("coisometry_err_fro", 0.0), s.get("psd_min_eig_violation", 0.0)])
+                    rows.append(
+                        [
+                            i,
+                            s.get("unital_err_fro", 0.0),
+                            s.get("coisometry_err_fro", 0.0),
+                            s.get("psd_min_eig_violation", 0.0),
+                        ]
+                    )
                 wcsv("cp.csv", ["depth", "unital", "coiso", "psd_vio"], rows)
             if "ulam_spectral_gap" in res:
-                wcsv("ulam.csv", ["metric", "value"], [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]])
+                wcsv(
+                    "ulam.csv",
+                    ["metric", "value"],
+                    [["spectral_gap", f"{res['ulam_spectral_gap']:.4f}"]],
+                )
             if "sparse_stats" in res:
                 rows = []
                 for d in res["sparse_stats"]:
                     n_prev, n_cur = d.get("shape", [0, 0])
-                    rows.append([d.get("depth", 0), n_prev, n_cur, d.get("nnz", 0), d.get("parent_ptrs", 0), f"{float(d.get('sparsity', 0.0)):.4%}"])
-                wcsv("sparse.csv", ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"], rows)
+                    rows.append(
+                        [
+                            d.get("depth", 0),
+                            n_prev,
+                            n_cur,
+                            d.get("nnz", 0),
+                            d.get("parent_ptrs", 0),
+                            f"{float(d.get('sparsity', 0.0)):.4%}",
+                        ]
+                    )
+                wcsv(
+                    "sparse.csv",
+                    ["depth", "n_prev", "n_cur", "nnz", "parent_ptrs", "sparsity"],
+                    rows,
+                )
             if "k_invariants" in res:
                 rows = []
                 for ki in res["k_invariants"]:
                     if "error" in ki:
                         rows.append([ki.get("depth", 0), "error", ki.get("error", "")])
                     else:
-                        rows.append([ki.get("depth", 0), ki.get("rank", 0), ki.get("nullity", 0), ";".join(map(str, ki.get("torsion", []))), ";".join(map(str, ki.get("S_diag", [])))])
+                        rows.append(
+                            [
+                                ki.get("depth", 0),
+                                ki.get("rank", 0),
+                                ki.get("nullity", 0),
+                                ";".join(map(str, ki.get("torsion", []))),
+                                ";".join(map(str, ki.get("S_diag", []))),
+                            ]
+                        )
                 wcsv("ktheory.csv", ["depth", "rank", "nullity", "torsion", "S_diag"], rows)
 
             # Compare outputs
@@ -729,23 +929,32 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     comp["eval_summary"] = self._last_eval_summary
                 with open(os.path.join(tmpdir, "compare.json"), "w", encoding="utf-8") as f:
                     json.dump(comp, f, indent=2)
-                labels = [c.get("label", f"run{i+1}") for i, c in enumerate(self._compare)]
-                maxd = max((len(c["results"].get("region_counts", []) or []) for c in self._compare), default=0)
+                labels = [c.get("label", f"run{i + 1}") for i, c in enumerate(self._compare)]
+                maxd = max(
+                    (len(c["results"].get("region_counts", []) or []) for c in self._compare),
+                    default=0,
+                )
                 rows = []
                 for dpt in range(maxd):
-                    row = [dpt+1]
+                    row = [dpt + 1]
                     for c in self._compare:
                         arr = c["results"].get("region_counts", []) or []
                         row.append(arr[dpt] if dpt < len(arr) else "")
                     rows.append(row)
                 wcsv("compare_regions.csv", ["depth"] + labels, rows)
-                row = [["spectral_gap"] + [
-                    (f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}" if c["results"].get("ulam_spectral_gap") is not None else "")
-                    for c in self._compare
-                ]]
+                row = [
+                    ["spectral_gap"]
+                    + [
+                        (
+                            f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}"
+                            if c["results"].get("ulam_spectral_gap") is not None
+                            else ""
+                        )
+                        for c in self._compare
+                    ]
+                ]
                 wcsv("compare_ulam.csv", ["metric"] + labels, row)
 
-            import zipfile
             with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for root, _, files in os.walk(tmpdir):
                     for fn in files:
@@ -795,18 +1004,24 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             if sys_prompt_in:
                 env_args["system_prompt"] = sys_prompt_in
             elif enforce:
-                env_args["system_prompt"] = self._compose_format_prompt(env_id, answer_mode, env_args)
+                env_args["system_prompt"] = self._compose_format_prompt(
+                    env_id, answer_mode, env_args
+                )
 
             # Update format guidance UI
             self._update_eval_format_ui(env_id, answer_mode, env_args)
 
             import shutil as _sh
+
             exe = _sh.which("vf-eval")
             if not exe:
-                self._log("vf-eval not found on PATH. Install verifiers or activate the env providing it.")
+                self._log(
+                    "vf-eval not found on PATH. Install verifiers or activate the env providing it."
+                )
                 return
 
             import subprocess
+
             cmd = [exe, env_id, "-a", json.dumps(env_args), "-s"]
             self._log("$ " + " ".join(cmd))
 
@@ -818,7 +1033,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
 
             def work():
                 try:
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    proc = subprocess.Popen(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                    )
                     summary = {}
                     assert proc.stdout is not None
                     for line in proc.stdout:
@@ -851,9 +1068,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 self._log("Eval completed." if ok else "Eval failed.")
 
             import threading
+
             def _runner():
                 ok = work()
                 self.call_from_thread(done, ok)
+
             threading.Thread(target=_runner, daemon=True, name="helix-pro-eval").start()
 
         @on(Button.Pressed, "#eval_preset_h8")
@@ -876,8 +1095,16 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 for r in rows:
                     dt.add_row(*[str(x) for x in r])
 
-            labels = [c.get("label", f"run{i+1}") for i, c in enumerate(self._compare)]
-            ids = ["#t_regions_cmp", "#t_mass_cmp", "#t_cp_unital_cmp", "#t_cp_coiso_cmp", "#t_ulam_cmp", "#t_sparse_sparsity_cmp", "#t_k_rank_cmp"]
+            labels = [c.get("label", f"run{i + 1}") for i, c in enumerate(self._compare)]
+            ids = [
+                "#t_regions_cmp",
+                "#t_mass_cmp",
+                "#t_cp_unital_cmp",
+                "#t_cp_coiso_cmp",
+                "#t_ulam_cmp",
+                "#t_sparse_sparsity_cmp",
+                "#t_k_rank_cmp",
+            ]
             if not labels:
                 for id_ in ids:
                     if self.query(id_):
@@ -894,7 +1121,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 maxd = max(maxd, len(arr))
             rows = []
             for d in range(maxd):
-                row = [d+1]
+                row = [d + 1]
                 for arr in lists:
                     row.append(arr[d] if d < len(arr) else "")
                 rows.append(row)
@@ -911,7 +1138,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 maxd = max(maxd, len(arr))
             rows = []
             for d in range(maxd):
-                row = [d+1]
+                row = [d + 1]
                 for arr in lists:
                     row.append(arr[d] if d < len(arr) else "")
                 rows.append(row)
@@ -929,7 +1156,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     maxd = max(maxd, len(arr))
                 rows: List[List[Any]] = []
                 for d in range(maxd):
-                    row = [d+1]
+                    row = [d + 1]
                     for arr in outs:
                         row.append(arr[d] if d < len(arr) else "")
                     rows.append(row)
@@ -944,10 +1171,17 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
 
             # Ulam compare
             dt = self.query_one("#t_ulam_cmp", DataTable)
-            row = [["spectral_gap"] + [
-                (f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}" if c["results"].get("ulam_spectral_gap") is not None else "")
-                for c in self._compare
-            ]]
+            row = [
+                ["spectral_gap"]
+                + [
+                    (
+                        f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}"
+                        if c["results"].get("ulam_spectral_gap") is not None
+                        else ""
+                    )
+                    for c in self._compare
+                ]
+            ]
             setup(dt, ["metric"] + labels, row)
             dt.display = True
 
@@ -962,7 +1196,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 maxd = max(maxd, len(arr))
             rows = []
             for d in range(maxd):
-                row = [d+1]
+                row = [d + 1]
                 for arr in lists:
                     row.append(f"{arr[d]:.2%}" if d < len(arr) else "")
                 rows.append(row)
@@ -982,7 +1216,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 maxd = max(maxd, len(arr))
             rows = []
             for d in range(maxd):
-                row = [d+1]
+                row = [d + 1]
                 for arr in lists:
                     row.append(arr[d] if d < len(arr) else "")
                 rows.append(row)
@@ -993,7 +1227,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         def _on_add_cmp(self) -> None:
             if not self._last:
                 return
-            label = (self.params.get("run_label") or f"run{len(self._compare)+1}").strip()
+            label = (self.params.get("run_label") or f"run{len(self._compare) + 1}").strip()
             self._compare.append({"label": label, "results": self._last})
             self._log(f"Added run to compare: {label}")
             self._populate_compare_tables()
@@ -1018,6 +1252,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             with open(fn, "w", encoding="utf-8") as f:
                 json.dump(out, f, indent=2)
             self._log(f"Exported {os.path.abspath(fn)}")
+
             # Export CSVs for key compares
             def w(name: str, header: List[str], rows: List[List[Any]]):
                 path = os.path.join(d, f"helix_compare_{ts}_" + name)
@@ -1026,22 +1261,32 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     for r in rows:
                         f.write(",".join(str(x) for x in r) + "\n")
                 self._log(f"Exported {os.path.abspath(path)}")
-            labels = [c.get("label", f"run{i+1}") for i, c in enumerate(self._compare)]
+
+            labels = [c.get("label", f"run{i + 1}") for i, c in enumerate(self._compare)]
             # Regions
-            maxd = max((len(c["results"].get("region_counts", []) or []) for c in self._compare), default=0)
+            maxd = max(
+                (len(c["results"].get("region_counts", []) or []) for c in self._compare), default=0
+            )
             rows = []
             for dpt in range(maxd):
-                row = [dpt+1]
+                row = [dpt + 1]
                 for c in self._compare:
                     arr = c["results"].get("region_counts", []) or []
                     row.append(arr[dpt] if dpt < len(arr) else "")
                 rows.append(row)
             w("regions.csv", ["depth"] + labels, rows)
             # Ulam
-            row = [["spectral_gap"] + [
-                (f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}" if c["results"].get("ulam_spectral_gap") is not None else "")
-                for c in self._compare
-            ]]
+            row = [
+                ["spectral_gap"]
+                + [
+                    (
+                        f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}"
+                        if c["results"].get("ulam_spectral_gap") is not None
+                        else ""
+                    )
+                    for c in self._compare
+                ]
+            ]
             w("ulam.csv", ["metric"] + labels, row)
 
         def action_reset(self) -> None:
@@ -1052,9 +1297,18 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             self.query_one("#width", Input).value = str(self.params["width"])  # type: ignore[attr-defined]
             self.query_one("#epochs", Input).value = str(self.params["epochs"])  # type: ignore[attr-defined]
             self.query_one("#ulam_bins", Input).value = str(self.params["ulam_bins"])  # type: ignore[attr-defined]
-            self.query_one("#ulam_samples_per_cell", Input).value = str(self.params["ulam_samples_per_cell"])  # type: ignore[attr-defined]
+            self.query_one("#ulam_samples_per_cell", Input).value = str(
+                self.params["ulam_samples_per_cell"]
+            )  # type: ignore[attr-defined]
             self.query_one("#ulam_eps", Input).value = str(self.params["ulam_eps"])  # type: ignore[attr-defined]
-            for k, v in {"regions": True, "mass": True, "cp": True, "ulam": True, "ktheory": False, "sparse": True}.items():
+            for k, v in {
+                "regions": True,
+                "mass": True,
+                "cp": True,
+                "ulam": True,
+                "ktheory": False,
+                "sparse": True,
+            }.items():
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self._log("Parameters reset.")
 
@@ -1062,7 +1316,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             self.exit()
 
         # Format guidance helpers
-        def _compose_format_prompt(self, env_id: str, answer_mode: str, env_args: Dict[str, Any]) -> str:
+        def _compose_format_prompt(
+            self, env_id: str, answer_mode: str, env_args: Dict[str, Any]
+        ) -> str:
             env = env_id.strip().lower()
             mode = str(answer_mode or "mcq").strip().lower()
             qsrc = str(env_args.get("question_source", "")).strip().lower()
@@ -1093,9 +1349,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                             "If an 'E. I don't know' option is shown, you may answer E."
                         )
                     else:
-                        return (
-                            "Answer the scientific question accurately in one short sentence."
-                        )
+                        return "Answer the scientific question accurately in one short sentence."
             if env == "hle":
                 # Generic guidance for HLE variants
                 if mode == "mcq":
@@ -1105,7 +1359,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             # Fallback
             return "Follow the task instructions. Keep outputs minimal and strictly formatted."
 
-        def _update_eval_format_ui(self, env_id: str, answer_mode: str, env_args: Dict[str, Any]) -> None:
+        def _update_eval_format_ui(
+            self, env_id: str, answer_mode: str, env_args: Dict[str, Any]
+        ) -> None:
             fmt = self._compose_format_prompt(env_id, answer_mode, env_args)
             try:
                 box = self.query_one("#eval_format", Static)
@@ -1117,50 +1373,81 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         @on(Button.Pressed, "#preset_quick")
         def _on_preset_quick(self) -> None:
             # Fast run: no training, low Ulam res
-            self.params.update({
-                "samples": 2000,
-                "noise": 0.07,
-                "epochs": 0,
-                "no_train": True,
-                "ulam_bins": 16,
-                "ulam_samples_per_cell": 1,
-                "ulam_eps": 0.4,
-            })
-            for k, v in {"regions": True, "mass": True, "cp": True, "ulam": True, "sparse": True, "ktheory": False}.items():
+            self.params.update(
+                {
+                    "samples": 2000,
+                    "noise": 0.07,
+                    "epochs": 0,
+                    "no_train": True,
+                    "ulam_bins": 16,
+                    "ulam_samples_per_cell": 1,
+                    "ulam_eps": 0.4,
+                }
+            )
+            for k, v in {
+                "regions": True,
+                "mass": True,
+                "cp": True,
+                "ulam": True,
+                "sparse": True,
+                "ktheory": False,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             # reflect inputs
             self.query_one("#samples", Input).value = str(self.params["samples"])  # type: ignore[attr-defined]
             self.query_one("#epochs", Input).value = str(self.params["epochs"])  # type: ignore[attr-defined]
             self.query_one("#ulam_bins", Input).value = str(self.params["ulam_bins"])  # type: ignore[attr-defined]
-            self.query_one("#ulam_samples_per_cell", Input).value = str(self.params["ulam_samples_per_cell"])  # type: ignore[attr-defined]
+            self.query_one("#ulam_samples_per_cell", Input).value = str(
+                self.params["ulam_samples_per_cell"]
+            )  # type: ignore[attr-defined]
             self._log("Applied preset: Quick demo")
 
         @on(Button.Pressed, "#preset_ulam")
         def _on_preset_ulam(self) -> None:
             # High resolution Ulam focus
-            self.params.update({
-                "ulam_bins": 48,
-                "ulam_samples_per_cell": 4,
-                "ulam_eps": 0.4,
-                "epochs": 50,
-                "no_train": True,
-            })
-            for k, v in {"regions": False, "mass": False, "cp": False, "ulam": True, "sparse": False, "ktheory": False}.items():
+            self.params.update(
+                {
+                    "ulam_bins": 48,
+                    "ulam_samples_per_cell": 4,
+                    "ulam_eps": 0.4,
+                    "epochs": 50,
+                    "no_train": True,
+                }
+            )
+            for k, v in {
+                "regions": False,
+                "mass": False,
+                "cp": False,
+                "ulam": True,
+                "sparse": False,
+                "ktheory": False,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self.query_one("#ulam_bins", Input).value = str(self.params["ulam_bins"])  # type: ignore[attr-defined]
-            self.query_one("#ulam_samples_per_cell", Input).value = str(self.params["ulam_samples_per_cell"])  # type: ignore[attr-defined]
+            self.query_one("#ulam_samples_per_cell", Input).value = str(
+                self.params["ulam_samples_per_cell"]
+            )  # type: ignore[attr-defined]
             self._log("Applied preset: High-res Ulam")
 
         @on(Button.Pressed, "#preset_k")
         def _on_preset_k(self) -> None:
             # K-theory only (requires sympy)
-            self.params.update({
-                "epochs": 0,
-                "no_train": True,
-            })
-            for k, v in {"regions": False, "mass": False, "cp": False, "ulam": False, "sparse": False, "ktheory": True}.items():
+            self.params.update(
+                {
+                    "epochs": 0,
+                    "no_train": True,
+                }
+            )
+            for k, v in {
+                "regions": False,
+                "mass": False,
+                "cp": False,
+                "ulam": False,
+                "sparse": False,
+                "ktheory": True,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self._log("Applied preset: K-theory only")
@@ -1168,29 +1455,49 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         @on(Button.Pressed, "#preset_health")
         def _on_preset_health(self) -> None:
             # Model Health Audit
-            self.params.update({
-                "ulam_bins": 24,
-                "ulam_samples_per_cell": 2,
-                "ulam_eps": 0.4,
-                "epochs": max(int(self.params.get("epochs", 50)), 50),
-            })
-            for k, v in {"regions": True, "mass": True, "cp": True, "ulam": True, "sparse": True, "ktheory": False}.items():
+            self.params.update(
+                {
+                    "ulam_bins": 24,
+                    "ulam_samples_per_cell": 2,
+                    "ulam_eps": 0.4,
+                    "epochs": max(int(self.params.get("epochs", 50)), 50),
+                }
+            )
+            for k, v in {
+                "regions": True,
+                "mass": True,
+                "cp": True,
+                "ulam": True,
+                "sparse": True,
+                "ktheory": False,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self.query_one("#ulam_bins", Input).value = str(self.params["ulam_bins"])  # type: ignore[attr-defined]
-            self.query_one("#ulam_samples_per_cell", Input).value = str(self.params["ulam_samples_per_cell"])  # type: ignore[attr-defined]
+            self.query_one("#ulam_samples_per_cell", Input).value = str(
+                self.params["ulam_samples_per_cell"]
+            )  # type: ignore[attr-defined]
             self._log("Applied preset: Model Health Audit")
 
         @on(Button.Pressed, "#preset_compare")
         def _on_preset_compare(self) -> None:
             # Architecture Compare: configure sweeps
-            self.params.update({
-                "epochs": 0,
-                "no_train": True,
-            })
+            self.params.update(
+                {
+                    "epochs": 0,
+                    "no_train": True,
+                }
+            )
             self.query_one("#sweep_seeds", Input).value = "1,2,3"  # type: ignore[attr-defined]
             self.query_one("#sweep_widths", Input).value = "8,16,32"  # type: ignore[attr-defined]
-            for k, v in {"regions": True, "mass": True, "cp": True, "ulam": True, "sparse": True, "ktheory": False}.items():
+            for k, v in {
+                "regions": True,
+                "mass": True,
+                "cp": True,
+                "ulam": True,
+                "sparse": True,
+                "ktheory": False,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self._log("Applied preset: Architecture Compare — click Sweep→Compare")
@@ -1198,13 +1505,22 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         @on(Button.Pressed, "#preset_monitor")
         def _on_preset_monitor(self) -> None:
             # Monitoring Run: fast JSON-friendly run
-            self.params.update({
-                "epochs": 0,
-                "no_train": True,
-                "ulam_bins": 16,
-                "ulam_samples_per_cell": 1,
-            })
-            for k, v in {"regions": True, "mass": True, "cp": False, "ulam": False, "sparse": True, "ktheory": False}.items():
+            self.params.update(
+                {
+                    "epochs": 0,
+                    "no_train": True,
+                    "ulam_bins": 16,
+                    "ulam_samples_per_cell": 1,
+                }
+            )
+            for k, v in {
+                "regions": True,
+                "mass": True,
+                "cp": False,
+                "ulam": False,
+                "sparse": True,
+                "ktheory": False,
+            }.items():
                 self.which[k] = v
                 self.query_one(f"#{k}", Checkbox).value = v  # type: ignore[attr-defined]
             self._log("Applied preset: Monitoring Run")
@@ -1213,7 +1529,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
         def action_add_cmp(self) -> None:
             if not self._last:
                 return
-            label = (self.params.get("run_label") or f"run{len(self._compare)+1}").strip()
+            label = (self.params.get("run_label") or f"run{len(self._compare) + 1}").strip()
             self._compare.append({"label": label, "results": self._last})
             self._log(f"Added run to compare: {label}")
             self._populate_compare_tables()
@@ -1238,6 +1554,7 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             with open(fn, "w", encoding="utf-8") as f:
                 json.dump(out, f, indent=2)
             self._log(f"Exported {os.path.abspath(fn)}")
+
             # Export CSVs for key compares
             def w(name: str, header: List[str], rows: List[List[Any]]):
                 path = os.path.join(d, f"helix_compare_{ts}_" + name)
@@ -1246,22 +1563,32 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     for r in rows:
                         f.write(",".join(str(x) for x in r) + "\n")
                 self._log(f"Exported {os.path.abspath(path)}")
-            labels = [c.get("label", f"run{i+1}") for i, c in enumerate(self._compare)]
+
+            labels = [c.get("label", f"run{i + 1}") for i, c in enumerate(self._compare)]
             # Regions
-            maxd = max((len(c["results"].get("region_counts", []) or []) for c in self._compare), default=0)
+            maxd = max(
+                (len(c["results"].get("region_counts", []) or []) for c in self._compare), default=0
+            )
             rows = []
             for dpt in range(maxd):
-                row = [dpt+1]
+                row = [dpt + 1]
                 for c in self._compare:
                     arr = c["results"].get("region_counts", []) or []
                     row.append(arr[dpt] if dpt < len(arr) else "")
                 rows.append(row)
             w("regions.csv", ["depth"] + labels, rows)
             # Ulam
-            row = [["spectral_gap"] + [
-                (f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}" if c["results"].get("ulam_spectral_gap") is not None else "")
-                for c in self._compare
-            ]]
+            row = [
+                ["spectral_gap"]
+                + [
+                    (
+                        f"{c['results'].get('ulam_spectral_gap', 0.0):.4f}"
+                        if c["results"].get("ulam_spectral_gap") is not None
+                        else ""
+                    )
+                    for c in self._compare
+                ]
+            ]
             w("ulam.csv", ["metric"] + labels, row)
 
         # Sweeps -> Compare
@@ -1290,7 +1617,13 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                             p = base.copy()
                             p["seed"] = s
                             p["width"] = w
-                            res = _compute_pro_metrics(p, self.which, progress_cb=lambda m: self.call_from_thread(self._log, f"[{s},{w}] {m}"))
+                            res = _compute_pro_metrics(
+                                p,
+                                self.which,
+                                progress_cb=lambda m: self.call_from_thread(
+                                    self._log, f"[{s},{w}] {m}"
+                                ),
+                            )
                             self._compare.append({"label": f"s{s}-w{w}", "results": res})
                             self.call_from_thread(self._log, f"Completed s={s} w={w}")
                     return True
@@ -1304,9 +1637,11 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 self._log("Sweep completed." if ok else "Sweep failed.")
 
             import threading
+
             def _runner():
                 ok = work()
                 self.call_from_thread(done, ok)
+
             threading.Thread(target=_runner, daemon=True, name="helix-pro-sweep").start()
 
         # API key/model setter
@@ -1314,7 +1649,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             var = (self.query_one("#api_key_var", Input).value or "").strip() or "OPENAI_API_KEY"
             key = (self.query_one("#api_key", Input).value or "").strip()
             base = (self.query_one("#api_base_url", Input).value or "").strip()
-            model_var = (self.query_one("#api_model_var", Input).value or "").strip() or "OPENAI_MODEL"
+            model_var = (
+                self.query_one("#api_model_var", Input).value or ""
+            ).strip() or "OPENAI_MODEL"
             model_name = (self.query_one("#api_model", Input).value or "").strip()
             try:
                 if key:
@@ -1325,12 +1662,12 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                     os.environ["OPENAI_API_BASE"] = base
                     # Try provider-specific base var derived from key var prefix
                     if var.endswith("_API_KEY"):
-                        prefix = var[:-len("_API_KEY")]
+                        prefix = var[: -len("_API_KEY")]
                         if prefix in ("OPENROUTER", "ANTHROPIC"):
                             os.environ[f"{prefix}_BASE_URL"] = base
                 if model_name:
                     os.environ[model_var] = model_name
-                msg = (f"Set {var} (hidden)" if key else "")
+                msg = f"Set {var} (hidden)" if key else ""
                 if base:
                     msg += " and base URL"
                 if model_name:
@@ -1345,7 +1682,9 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 self.query_one("#api_key_var", Input).value = "OPENAI_API_KEY"  # type: ignore[attr-defined]
                 self.query_one("#api_model_var", Input).value = "OPENAI_MODEL"  # type: ignore[attr-defined]
                 if prov == "azure-openai":
-                    self.query_one("#api_base_url", Input).value = "https://{resource}.openai.azure.com/openai/deployments/{deployment}/"  # type: ignore[attr-defined]
+                    self.query_one(
+                        "#api_base_url", Input
+                    ).value = "https://{resource}.openai.azure.com/openai/deployments/{deployment}/"  # type: ignore[attr-defined]
                 else:
                     self.query_one("#api_base_url", Input).value = ""  # type: ignore[attr-defined]
             elif prov == "anthropic":
@@ -1361,15 +1700,19 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 self.query_one("#api_base_url", Input).value = "http://localhost:8000/v1"  # type: ignore[attr-defined]
                 self.query_one("#api_model_var", Input).value = "OPENAI_MODEL"  # type: ignore[attr-defined]
             else:
-                self._log(f"Unknown provider '{prov}'. Use openai|anthropic|openrouter|local|azure-openai.")
+                self._log(
+                    f"Unknown provider '{prov}'. Use openai|anthropic|openrouter|local|azure-openai."
+                )
                 return
-            self._api_mem.update({
-                "provider": prov,
-                "api_key_var": self.query_one("#api_key_var", Input).value,
-                "api_base_url": self.query_one("#api_base_url", Input).value,
-                "api_model_var": self.query_one("#api_model_var", Input).value,
-                "api_model": self.query_one("#api_model", Input).value,
-            })
+            self._api_mem.update(
+                {
+                    "provider": prov,
+                    "api_key_var": self.query_one("#api_key_var", Input).value,
+                    "api_base_url": self.query_one("#api_base_url", Input).value,
+                    "api_model_var": self.query_one("#api_model_var", Input).value,
+                    "api_model": self.query_one("#api_model", Input).value,
+                }
+            )
             self._log(f"Applied provider preset: {prov}")
 
         def action_save(self) -> None:
@@ -1379,11 +1722,26 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 "params": self.params,
                 "which": self.which,
                 "api": {
-                    "api_key_var": (self.query_one("#api_key_var", Input).value or self._api_mem.get("api_key_var", "")),
-                    "api_base_url": (self.query_one("#api_base_url", Input).value or self._api_mem.get("api_base_url", "")),
-                    "api_model_var": (self.query_one("#api_model_var", Input).value or self._api_mem.get("api_model_var", "")),
-                    "api_model": (self.query_one("#api_model", Input).value or self._api_mem.get("api_model", "")),
-                    "provider": (self.query_one("#provider", Input).value or self._api_mem.get("provider", "")),
+                    "api_key_var": (
+                        self.query_one("#api_key_var", Input).value
+                        or self._api_mem.get("api_key_var", "")
+                    ),
+                    "api_base_url": (
+                        self.query_one("#api_base_url", Input).value
+                        or self._api_mem.get("api_base_url", "")
+                    ),
+                    "api_model_var": (
+                        self.query_one("#api_model_var", Input).value
+                        or self._api_mem.get("api_model_var", "")
+                    ),
+                    "api_model": (
+                        self.query_one("#api_model", Input).value
+                        or self._api_mem.get("api_model", "")
+                    ),
+                    "provider": (
+                        self.query_one("#provider", Input).value
+                        or self._api_mem.get("provider", "")
+                    ),
                 },
                 "saved_at": datetime.utcnow().isoformat() + "Z",
             }
@@ -1399,8 +1757,13 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 pass
             try:
                 txt = self.query_one("#help_text", Static)
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-                paths = [os.path.join(root, "docs", "applications.md"), os.path.join(root, "uses.md")]
+                root = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+                )
+                paths = [
+                    os.path.join(root, "docs", "applications.md"),
+                    os.path.join(root, "uses.md"),
+                ]
                 buf = []
                 for p in paths:
                     try:
@@ -1423,10 +1786,25 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
             k = key.strip().lower()
             v = val.strip()
             try:
-                numeric_int = {"samples", "seed", "width", "epochs", "ulam_bins", "ulam_samples_per_cell"}
+                numeric_int = {
+                    "samples",
+                    "seed",
+                    "width",
+                    "epochs",
+                    "ulam_bins",
+                    "ulam_samples_per_cell",
+                }
                 numeric_float = {"noise", "ulam_eps"}
                 toggles = {"no_train", "regions", "mass", "cp", "ulam", "sparse", "ktheory"}
-                misc_inputs = {"export_dir", "run_label", "api_key_var", "api_base_url", "api_model_var", "api_model", "provider"}
+                misc_inputs = {
+                    "export_dir",
+                    "run_label",
+                    "api_key_var",
+                    "api_base_url",
+                    "api_model_var",
+                    "api_model",
+                    "provider",
+                }
                 if k in numeric_int:
                     self.query_one(f"#{k}", Input).value = str(int(float(v)))  # type: ignore[attr-defined]
                 elif k in numeric_float:
@@ -1491,12 +1869,24 @@ def run_pro_tui(argv: Optional[List[str]] = None) -> int:
                 return
             if low.startswith("preset "):
                 name = s.split(None, 1)[1].strip().lower()
-                if name == "quick": self._on_preset_quick(); return
-                if name == "ulam": self._on_preset_ulam(); return
-                if name == "k": self._on_preset_k(); return
-                if name == "health": self._on_preset_health(); return
-                if name == "compare": self._on_preset_compare(); return
-                if name == "monitor": self._on_preset_monitor(); return
+                if name == "quick":
+                    self._on_preset_quick()
+                    return
+                if name == "ulam":
+                    self._on_preset_ulam()
+                    return
+                if name == "k":
+                    self._on_preset_k()
+                    return
+                if name == "health":
+                    self._on_preset_health()
+                    return
+                if name == "compare":
+                    self._on_preset_compare()
+                    return
+                if name == "monitor":
+                    self._on_preset_monitor()
+                    return
                 self._log(f"Unknown preset: {name}")
                 return
             if low.startswith("provider "):

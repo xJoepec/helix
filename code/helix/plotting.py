@@ -69,5 +69,3 @@ def plot_ulam_spectrum(
     ax.set_ylim(0.0, 1.05)
     ax.grid(True, axis="y", alpha=0.3)
     return fig, ax
-
-

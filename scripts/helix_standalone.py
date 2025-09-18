@@ -19,17 +19,17 @@ Optional dependencies:
 
 from __future__ import annotations
 
+import importlib
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-import math
-import importlib
 import numpy as np
-
 
 # =====================
 # Sparse helper module
 # =====================
+
 
 def parents_from_B(B: np.ndarray) -> np.ndarray:
     """Infer parent pointers from a 0/1 incidence matrix B (n_prev x n_cur).
@@ -223,6 +223,7 @@ def extract_partitions(
 # CP map module
 # =====================
 
+
 def build_V_from_incidence(B: np.ndarray, tau_prev: np.ndarray, tau_cur: np.ndarray) -> np.ndarray:
     """Construct a numerically-stable V from incidence and masses.
 
@@ -299,6 +300,7 @@ def sanity_check_ucp(
 # Ulam PF module
 # =====================
 
+
 def ulam_pf(
     F: Callable[[np.ndarray], np.ndarray],
     box: Tuple[np.ndarray, np.ndarray],
@@ -363,7 +365,7 @@ def ulam_pf(
                         break
                     w *= r[i]
                 else:
-                    w *= (1.0 - r[i])
+                    w *= 1.0 - r[i]
             if not valid or w == 0.0:
                 continue
             tgt = int((idx * multipliers).sum())
@@ -394,6 +396,7 @@ def spectral_gap(P: np.ndarray) -> float:
 # =====================
 # K-theory module (optional: sympy)
 # =====================
+
 
 def smith_normal_form_Z(M: np.ndarray) -> Dict[str, object]:
     """Compute Smith normal form over Z and derive basic invariants.
@@ -439,6 +442,7 @@ def k_invariants_from_B(B: np.ndarray) -> Dict[str, object]:
 # Diagnostics module
 # =====================
 
+
 def region_counts(B_list: List[np.ndarray]) -> List[int]:
     """Return region counts n_k from incidence list (n_{k-1} x n_k)."""
     return [B.shape[1] for B in B_list]
@@ -472,6 +476,7 @@ def cumulative_anisotropy(B_list: List[np.ndarray]) -> np.ndarray:
 # Plotting module (lazy matplotlib import)
 # =====================
 
+
 def _import_matplotlib():
     plt = importlib.import_module("matplotlib.pyplot")
     return plt
@@ -488,7 +493,9 @@ def plot_region_counts(n_list: Sequence[int], *, title: str = "Region counts vs 
     return fig, ax
 
 
-def plot_mass_consistency(errs: Sequence[float], *, title: str = r"Mass consistency $\|\tau_{k-1}-B_k\tau_k\|_1$"):
+def plot_mass_consistency(
+    errs: Sequence[float], *, title: str = r"Mass consistency $\|\tau_{k-1}-B_k\tau_k\|_1$"
+):
     plt = _import_matplotlib()
     fig, ax = plt.subplots()
     markerline, stemlines, baseline = ax.stem(np.arange(1, len(errs) + 1), errs)
@@ -518,7 +525,9 @@ def plot_cp_errors(cp_stats: List[Dict[str, float]], *, title: str = "CP diagnos
     return fig, ax
 
 
-def plot_ulam_spectrum(P: np.ndarray, top: int = 10, *, title: str = "Ulam PF eigenvalue magnitudes"):
+def plot_ulam_spectrum(
+    P: np.ndarray, top: int = 10, *, title: str = "Ulam PF eigenvalue magnitudes"
+):
     plt = _import_matplotlib()
     vals = np.sort(np.abs(np.linalg.eigvals(P.T)))[::-1][:top]
     fig, ax = plt.subplots()
@@ -534,6 +543,7 @@ def plot_ulam_spectrum(P: np.ndarray, top: int = 10, *, title: str = "Ulam PF ei
 # =====================
 # Serialization helpers
 # =====================
+
 
 def to_jsonable(obj: Any) -> Any:
     """Recursively convert numpy types and arrays to JSON-serializable Python types."""
@@ -682,4 +692,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

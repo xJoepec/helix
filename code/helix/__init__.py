@@ -60,4 +60,3 @@ __all__ = [
     "parents_from_B",
     "B_from_parents",
 ]
-

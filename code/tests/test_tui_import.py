@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import unittest
 import os
 import sys
-
+import unittest
 
 # Ensure the 'code' directory (package root for 'helix') is on sys.path
 PKG_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -23,4 +22,3 @@ class TestTUIImport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

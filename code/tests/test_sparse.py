@@ -34,6 +34,7 @@ class TestSparseHelpers(unittest.TestCase):
         # Identity map on a 2D box
         def F(x):
             return x
+
         lo = np.array([-1.0, -1.0])
         hi = np.array([1.0, 1.0])
         P, _ = ulam_pf(F, (lo, hi), bins_per_dim=5, samples_per_cell=3)
