@@ -1,85 +1,87 @@
-% helixenv
+# helixenv
 
-A lightweight verifiers environment that quizzes core Helix concepts via multiple‑choice questions (MCQ). Useful for smoke‑testing agents and pipelines wired to `verifiers`.
+Operator-algebra diagnostics packaged as Verifiers/Prime-compatible environments. The default AF
+partition task mirrors the workflow from `helix-env-idea.md`: agents inspect layer-wise region
+statistics, CP diagnostics, and Ulam transfer metrics, then classify the run as **stable**,
+**capacity-wasted**, or **collapsed**.
 
-- Environment ID: `helixenv`
-- Short description: MCQ questions about AF partitions, CP maps, Ulam PF, and Helix diagnostics
-- Tags: helix, mcq, single-turn
+### Overview
+- **Environment ID**: `helix/af_partition:v0`
+- **Short description**: Multi-level AF partition diagnostics rendered as MCQ prompts
+- **Tags**: operator-algebra, diagnostics, mcq
 
-## Quickstart
-
-Run a small evaluation locally:
-
-```bash
-uv run vf-eval helixenv -a '{"max_episodes": 5}' -s
-```
-
-If using your own venv instead of `uv`, install the env package (pulls in `verifiers`):
+### Quickstart
+Run the CLI demo that synthesises a two-moons model, extracts diagnostics, and prints layer stats:
 
 ```bash
-pip install -e environments/helixenv
-vf-eval helixenv -a '{"max_episodes": 5}' -s
+helix helixenv --samples 1024 --noise 0.05 --width 24 --epochs 80
 ```
 
-CLI/TUI wrappers (reuse core Helix tools):
+Provide an API key for LLM-based rubric extensions (stored in `OPENAI_API_KEY` unless overridden):
 
 ```bash
-# Demo: region counts, mass consistency, CP checks, Ulam PF (plots optional)
-python -m environments.helixenv.cli demo --samples 4000 --noise 0.07 --plot
-
-# TUI: interactive exploration (requires extras)
-pip install '.[tui]'
-python -m environments.helixenv.cli tui
-
-# Or, after installing this env package:
-helixenv-cli demo --samples 4000 --noise 0.07 --plot
-helixenv-cli tui
-
-# Pro TUI (advanced presets, tables, exports)
-python -m environments.helixenv.cli pro
-helixenv-cli pro
-
-Features
-- Presets: Quick demo, High-res Ulam, K-theory only
-- Tables: Regions, Mass, CP, Ulam, Sparse, K-theory
-- Compare: Add runs, side-by-side tables, Export Compare (JSON/CSV)
-- Sweeps→Compare: configure `sweep_seeds`, `sweep_widths`, then run
-- Exports: JSON/CSVs to `export_dir`
-- API Keys: set `api_key_var`, `api_key`, optional `api_base_url`
-
-Key bindings
-- r: Run current config
-- w: Sweep→Compare
-- a/m/c: Add/Export/Clear Compare
-- e/x: Export JSON / Export CSVs
-- k: Set API key env vars
+helix helixenv --api-key sk-your-key --api-key-var OPENAI_API_KEY
 ```
 
-Notes:
-- Use `-a` / `--env-args` to pass environment-specific configuration as JSON.
-- The environment is self-contained and does not require external datasets.
-- The CLI/TUI wrappers forward to the `helix` package in `code/helix/`, exposing the
-  use cases described in `uses.md` without duplicating logic here.
+Interactive mode (`helix` with no arguments) also prompts for the key using a non-echoing input. The
+key is only exported for the current process, matching how `bixbench` and `hle` expect judge keys.
 
-## Environment Arguments
+Enable the optional LLM judge when calling the Verifiers loader:
 
-- `mode` ("zero_shot" | "agentic", default "zero_shot"): execution mode
-- `answer_mode` ("mcq" | "open", default "mcq"): answer format
-- `max_episodes` (int | null, default null): limit number of items
-- `shuffle_options` (bool, default true): shuffle MCQ options with a seeded RNG
-- `with_refusal` (bool, default false): append “I don’t know” as option E
-- `seed` (int, default 42): seed for deterministic shuffling
-- `use_think` (bool, default false): use ThinkParser for chain-of-thought parsing
-- `max_turns` (int, default 10): agentic: assistant replies before stopping
-- `system_prompt` (str | null): override the default system prompt
+```python
+from environments.helixenv import load_environment
 
-## Metrics
-
-- `reward`: 1.0 for correct letter, else 0.0
-
-## Example
-
-```bash
-env=helixenv episodes=5 mode=zero_shot answer_mode=mcq
-reward/avg=0.60 std=0.49
+env = load_environment(
+    enable_llm_judge=True,
+    llm_judge_model="gpt-4.1-mini",
+    llm_judge_api_key_var="OPENAI_API_KEY",
+)
 ```
+
+The judge checks the assistant’s letter and emits `verdict: correct/incorrect`. Any key set through
+the CLI is already available via `OPENAI_API_KEY`.
+
+### Verifiers integration
+Programmatic access mirrors other environments:
+
+```python
+from environments.helixenv import load_environment
+
+env = load_environment(max_episodes=4)
+step = env.reset()
+```
+
+Register with Verifiers/Prime hubs via:
+
+```python
+from environments.helixenv import register_helix_envs
+register_helix_envs(registry.register_env)
+```
+
+### Environment arguments
+
+| Arg | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `samples` | int | 2000 | Synthetic dataset size when no features are provided |
+| `noise` | float | 0.08 | Noise level for the two-moons generator |
+| `seed` | int | 1 | RNG seed for data and training |
+| `width` | int | 16 | Hidden width for the demo MLP |
+| `epochs` | int | 60 | Demo training epochs |
+| `mass_weight` | float | 1.0 | Reward weight for mass-consistency error |
+| `wasted_weight` | float | 0.1 | Reward weight for wasted regions |
+| `max_depth` | int | 0 | Depth cap (0 means use all levels) |
+| `api_key` | str | "" | Optional API key captured from the CLI and exported for rubrics |
+| `api_key_var` | str | `OPENAI_API_KEY` | Environment variable that receives the key |
+| `enable_llm_judge` | bool | `False` | Use an LLM-based rubric (requires API key) |
+| `llm_judge_model` | str | `gpt-4.1-mini` | Model name for the judge client |
+| `llm_judge_base_url` | str | `https://api.openai.com/v1` | Base URL for the judge provider |
+| `llm_judge_api_key_var` | str | `OPENAI_API_KEY` | Env var name supplying the judge key |
+
+Runtime adapters may also provide `data_x`/`data_y`, `model_module`, `model_kwargs`, and `weights`
+to analyse custom networks.
+
+### Notes
+- The Verifiers loader emits multiple-choice prompts with deterministic scoring, so the API key is
+  optional today. Future rubric extensions (LLM-based diagnostics, narrative rationales) will reuse
+  the same key handling, keeping parity with `bixbench` and `hle`.
+- See `helix-env-idea.md` for the broader roadmap covering CP/Ulam/equivariance environments.

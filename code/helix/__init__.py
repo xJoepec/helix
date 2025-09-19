@@ -19,6 +19,12 @@ from .diagnostics import (
     mass_consistency_errors,
     region_counts,
 )
+from .env_api import (
+    AFLevelMetrics,
+    AFMetrics,
+    af_feature_vector,
+    extract_af_metrics,
+)
 from .ktheory import (
     k_invariants_from_B,
     smith_normal_form_Z,
@@ -59,4 +65,9 @@ __all__ = [
     # sparse helpers
     "parents_from_B",
     "B_from_parents",
+    # environment helpers
+    "AFLevelMetrics",
+    "AFMetrics",
+    "af_feature_vector",
+    "extract_af_metrics",
 ]

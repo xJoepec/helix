@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import getpass
+import json
 import math
 import os
 import shutil
@@ -9,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 from time import time as _time
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -43,6 +45,68 @@ from helix.plotting import (
     plot_region_counts,
     plot_ulam_spectrum,
 )
+
+
+def _ensure_repo_root_on_path() -> Path:
+    """Guarantee the repository root is importable for env packages."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_str = str(repo_root)
+    if repo_str not in sys.path:
+        sys.path.append(repo_str)
+    return repo_root
+
+
+def _import_af_partition_env():
+    try:
+        from environments.helixenv.af_partition.env import AFPartitionEnv
+        return AFPartitionEnv
+    except ModuleNotFoundError as exc:
+        _ensure_repo_root_on_path()
+        try:
+            from environments.helixenv.af_partition.env import AFPartitionEnv
+            return AFPartitionEnv
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Helix environments not found. Ensure the 'environments' package "
+                "is available or run the Helix CLI from the repository root."
+            ) from exc
+
+
+def _build_helix_env_parser(prog: str = "helix helixenv") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Helix operator-algebra environment demo (AF partitions)",
+    )
+    parser.add_argument("--samples", type=int, default=2000)
+    parser.add_argument("--noise", type=float, default=0.08)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--width", type=int, default=16)
+    parser.add_argument("--d-out", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=60)
+    parser.add_argument("--no-train", action="store_true")
+    parser.add_argument("--data-x", type=str, default="")
+    parser.add_argument("--data-y", type=str, default="")
+    parser.add_argument("--model-module", type=str, default="")
+    parser.add_argument("--model-func", type=str, default="build_model")
+    parser.add_argument("--model-kwargs", type=str, default="")
+    parser.add_argument("--weights", type=str, default="")
+    parser.add_argument("--max-depth", type=int, default=0, help="Limit depth traversal (0 = all)")
+    parser.add_argument("--mass-weight", type=float, default=1.0)
+    parser.add_argument("--wasted-weight", type=float, default=0.1)
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default="",
+        help="API key for LLM-based judges (exported to the environment for downstream tools)",
+    )
+    parser.add_argument(
+        "--api-key-var",
+        type=str,
+        default="OPENAI_API_KEY",
+        help="Environment variable name to store the provided API key",
+    )
+    return parser
 
 
 def _supports_color() -> bool:
@@ -373,6 +437,152 @@ def _prepare_sequence(seq: Union[Sequence[float], np.ndarray]) -> str:
     return ", ".join(f"{x:.3g}" if isinstance(x, (int, float)) else str(x) for x in arr)
 
 
+def _prompt_text(prompt: str, default: Optional[str] = None) -> str:
+    suffix = f" [{default}]" if default is not None else ""
+    raw = input(f"{prompt}{suffix}: ").strip()
+    if raw:
+        return raw
+    return default or ""
+
+
+def _prompt_secret(prompt: str) -> str:
+    try:
+        return getpass.getpass(f"{prompt}: ")
+    except Exception:
+        return input(f"{prompt}: ").strip()
+
+
+def _prompt_int(prompt: str, default: int) -> int:
+    while True:
+        raw = _prompt_text(prompt, str(default))
+        try:
+            return int(raw)
+        except ValueError:
+            print("Please enter a valid integer.")
+
+
+def _prompt_float(prompt: str, default: float) -> float:
+    while True:
+        raw = _prompt_text(prompt, str(default))
+        try:
+            return float(raw)
+        except ValueError:
+            print("Please enter a valid number.")
+
+
+def _prompt_bool(prompt: str, default: bool = False) -> bool:
+    default_str = "y" if default else "n"
+    while True:
+        raw = _prompt_text(f"{prompt} [y/n]", default_str).lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("Please answer with y or n.")
+
+
+def _interactive_collect_helix_args() -> argparse.Namespace:
+    print(_headline("Operator Algebra Environment Setup"))
+    print(_subtle("Leave entries blank to fall back to demo defaults."))
+    data_x = _prompt_text("Dataset path (.npy/.npz/.csv)")
+    data_y = _prompt_text("Labels path (optional)") if data_x else ""
+    model_module = _prompt_text("Model builder module path")
+    if model_module:
+        model_func = _prompt_text("Builder function name", "build_model") or "build_model"
+        model_kwargs = _prompt_text("Model kwargs JSON (optional)")
+    else:
+        model_func = "build_model"
+        model_kwargs = ""
+    weights = _prompt_text("Weights path (.pt/.pth)")
+    samples = _prompt_int("Demo samples (used when no dataset)", 2000)
+    noise = _prompt_float("Demo noise level", 0.08)
+    seed = _prompt_int("Random seed", 1)
+    width = _prompt_int("Demo hidden width", 16)
+    d_out = _prompt_int("Demo output width", 2)
+    epochs = _prompt_int("Training epochs (demo or labelled data)", 60)
+    max_depth = _prompt_int("Max AF depth (0 = all)", 0)
+    mass_weight = _prompt_float("Reward weight: mass error", 1.0)
+    wasted_weight = _prompt_float("Reward weight: wasted regions", 0.1)
+    api_key = _prompt_secret("LLM judge API key (leave blank to skip)").strip()
+    api_key_var = _prompt_text("API key env var", "OPENAI_API_KEY") or "OPENAI_API_KEY"
+    no_train_default = bool(weights or (data_x and not data_y))
+    no_train = _prompt_bool("Skip training (set true if model already trained)", no_train_default)
+    return argparse.Namespace(
+        data_x=data_x,
+        data_y=data_y,
+        model_module=model_module,
+        model_func=model_func,
+        model_kwargs=model_kwargs,
+        weights=weights,
+        samples=samples,
+        noise=noise,
+        seed=seed,
+        width=width,
+        epochs=epochs,
+        no_train=no_train,
+        max_depth=max_depth,
+        mass_weight=mass_weight,
+        wasted_weight=wasted_weight,
+        d_out=d_out,
+        api_key=api_key,
+        api_key_var=api_key_var,
+    )
+
+
+def run_helixenv_overview(args: Optional[argparse.Namespace] = None) -> int:
+    """Display a summary of the Helix diagnostics environment dataset."""
+
+    _ensure_repo_root_on_path()
+    from environments.helixenv.af_partition.dataset import build_af_examples
+
+    examples = build_af_examples()
+    count = len(examples)
+    label_counts: dict[str, int] = {"A": 0, "B": 0, "C": 0}
+    for ex in examples:
+        data = json.loads(ex["answer"])
+        letter = data.get("label", "?")
+        if letter in label_counts:
+            label_counts[letter] += 1
+
+    _animate_banner(loops=1, fps=18.0)
+    print(_subtle(_divider()))
+    print(_headline("Helix Diagnostics Environment"))
+    print(
+        _subtle(
+            f"{count} synthesized scenarios with labelled outcomes: "
+            f"stable (A) {label_counts['A']}, capacity (B) {label_counts['B']}, collapsed (C) {label_counts['C']}."
+        )
+    )
+
+    if examples:
+        sample = examples[0]
+        data = json.loads(sample["answer"])
+        print(_headline("Sample Scenario"))
+        lines = sample["question"].splitlines()
+        for line in lines[:16]:
+            print(line)
+        if len(lines) > 16:
+            print("...")
+        print(_subtle(f"Expected label: {data['label']} ({data['label_name']})"))
+
+    print(_subtle(_divider("-")))
+    print(
+        _format_metric(
+            "verifiers loader",
+            "from environments.helixenv.af_partition import load_environment",
+            icon="[HX]",
+        )
+    )
+    print(
+        _format_metric(
+            "system prompt",
+            "Use load_verifiers_environment() for helix/af_partition:v0",
+            icon="[HX]",
+        )
+    )
+    return 0
+
+
 def _headline(text: str) -> str:
     return _style(text, color="92", bold=True) if _supports_color() else text
 
@@ -412,10 +622,12 @@ def run_interactive() -> int:
             _print_menu_line(_headline("Helix Interactive Menu"))
             _print_menu_line(_subtle("Select an option to continue:"))
             _print_menu_line()
-            _print_menu_line("  [1] Run demo (two moons dataset)")
-            _print_menu_line("  [2] Analyze custom model/data")
-            _print_menu_line("  [3] Interactive TUI mode")
-            _print_menu_line("  [4] Exit")
+            _print_menu_line("  [1] Run Helix environment (model analytics)")
+            _print_menu_line("  [2] Helix environment summary")
+            _print_menu_line("  [3] Run demo (two moons dataset)")
+            _print_menu_line("  [4] Analyze custom model/data")
+            _print_menu_line("  [5] Interactive TUI mode")
+            _print_menu_line("  [6] Exit")
             _print_menu_line()
 
             prompt = (
@@ -452,7 +664,15 @@ def run_interactive() -> int:
                     sys.stdout.flush()
 
             if choice == "1":
-                # Run demo with default settings
+                print()
+                helix_args = _interactive_collect_helix_args()
+                print()
+                return run_helix_env(helix_args)
+            elif choice == "2":
+                print()
+                result = run_helixenv_overview()
+                return result
+            elif choice == "3":
                 args = argparse.Namespace(
                     samples=4000,
                     noise=0.07,
@@ -468,8 +688,7 @@ def run_interactive() -> int:
                 )
                 print()
                 return run_demo(args)
-            elif choice == "2":
-                # Run analyze with prompts for key options
+            elif choice == "4":
                 print()
                 print(_headline("Custom Analysis Setup"))
 
@@ -500,8 +719,7 @@ def run_interactive() -> int:
                 )
                 print()
                 return run_analyze(args)
-            elif choice == "3":
-                # Launch TUI
+            elif choice == "5":
                 try:
                     from .tui import run_tui
 
@@ -515,11 +733,11 @@ def run_interactive() -> int:
                     print(_subtle(f"Details: {e}"))
                     input("\nPress Enter to continue...")
                     continue
-            elif choice == "4":
+            elif choice == "6":
                 print(_subtle("\nExiting Helix. Thank you!"))
                 return 0
             else:
-                print(_error("\nInvalid choice. Please select 1-4."))
+                print(_error("\nInvalid choice. Please select 1-6."))
                 input("Press Enter to continue...")
     except (KeyboardInterrupt, EOFError):
         print(_subtle("\n\nExiting Helix. Thank you!"))
@@ -707,6 +925,156 @@ def run_demo(args: argparse.Namespace) -> int:
             fig4.savefig(f"{args.save_prefix}_ulam.png", dpi=150, bbox_inches="tight")
         if not args.no_show:
             plt.show()
+
+    return 0
+
+
+def run_helix_env(args: argparse.Namespace) -> int:
+    """Run the operator-algebra AF environment with optional custom data/model."""
+
+    if torch is None:
+        raise RuntimeError("PyTorch required. Install with `pip install torch`.")
+
+    AFPartitionEnv = _import_af_partition_env()
+
+    api_key = getattr(args, "api_key", "")
+    api_key_var = getattr(args, "api_key_var", "OPENAI_API_KEY") or "OPENAI_API_KEY"
+    if api_key:
+        os.environ[api_key_var] = api_key
+        print(
+            _subtle(
+                f"Stored API key in environment variable {api_key_var} for Helix Verifiers integrations."
+            )
+        )
+    elif os.environ.get(api_key_var):
+        print(_subtle(f"Using API key from environment variable {api_key_var}."))
+
+    _seed_torch(args.seed)
+
+    if getattr(args, "data_x", ""):
+        X = _load_array(args.data_x)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        X = np.asarray(X, dtype=np.float32)
+        y = None
+        if getattr(args, "data_y", ""):
+            y_arr = _load_array(args.data_y)
+            y_flat = np.asarray(y_arr, dtype=np.int64).reshape(-1)
+            if y_flat.shape[0] != X.shape[0]:
+                raise ValueError("data_y length must match number of rows in data_x")
+            y = y_flat
+    else:
+        X, y = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
+
+    if args.model_module:
+        builder = _dynamic_import_builder(args.model_module, args.model_func)
+        kwargs: dict[str, Any] = {}
+        if getattr(args, "model_kwargs", ""):
+            import json as _json
+
+            try:
+                kwargs = _json.loads(args.model_kwargs)
+            except Exception as e:
+                raise ValueError(f"Invalid JSON for --model-kwargs: {e}")
+        model = builder(**kwargs)
+        if not isinstance(model, nn.Module):
+            raise TypeError("Builder must return a torch.nn.Module")
+    else:
+        d_in = int(X.shape[1]) if X.ndim == 2 else 1
+        widths = (args.width, args.width)
+        model = MLP(d_in=d_in, widths=widths, d_out=args.d_out)
+
+    if getattr(args, "weights", ""):
+        state = torch.load(args.weights, map_location="cpu")
+        try:
+            model.load_state_dict(state)
+        except Exception:
+            model.load_state_dict(state, strict=False)
+
+    if (not args.no_train) and (y is not None):
+        X_t = torch.from_numpy(X)
+        y_t = torch.from_numpy(y)
+        opt = torch.optim.Adam(model.parameters(), lr=1e-2)
+        for _ in range(args.epochs):
+            opt.zero_grad()
+            logits = model(X_t)
+            loss = F.cross_entropy(logits, y_t)
+            loss.backward()
+            opt.step()
+
+    max_depth = args.max_depth if getattr(args, "max_depth", 0) and args.max_depth > 0 else None
+    env = AFPartitionEnv(
+        model,
+        X,
+        max_depth=max_depth,
+        mass_weight=args.mass_weight,
+        wasted_weight=args.wasted_weight,
+    )
+
+    _animate_banner(loops=1, fps=18.0)
+    print(_subtle(_divider()))
+    print(_headline("Helix Environment"))
+    meta_bits = [
+        f"samples={X.shape[0]}",
+        f"dim={int(X.shape[1]) if X.ndim == 2 else 1}",
+        f"seed={args.seed}",
+        f"depth_cap={max_depth or 'all'}",
+    ]
+    if getattr(args, "data_x", ""):
+        meta_bits.append(f"data={os.path.basename(args.data_x)}")
+    else:
+        meta_bits.append(f"demo_noise={args.noise:.3f}")
+    if args.model_module:
+        meta_bits.append(f"model={os.path.basename(args.model_module)}")
+    else:
+        meta_bits.append(f"demo_width={args.width}")
+    if getattr(args, "weights", ""):
+        meta_bits.append("weights=loaded")
+    if args.no_train or (y is None):
+        meta_bits.append("training=skipped")
+    print(_subtle(" | ".join(meta_bits)))
+    print(_headline("AF levels"))
+
+    rows = []
+    step = env.reset()
+    while True:
+        obs = step.obs
+        rows.append(
+            {
+                "depth": obs["depth"],
+                "regions": obs["n_regions"],
+                "mass_err": obs["mass_error"],
+                "wasted": obs["wasted_regions"],
+                "reward": step.reward,
+            }
+        )
+        if step.done:
+            break
+        step = env.step()
+
+    header = f"{'depth':>5} {'regions':>9} {'mass_err':>12} {'wasted':>8} {'reward':>10}"
+    print(header)
+    print(_subtle("-" * len(header)))
+    for row in rows:
+        print(
+            f"{row['depth']:>5} {row['regions']:>9} {row['mass_err']:>12.4e} {row['wasted']:>8} {row['reward']:>10.4f}"
+        )
+
+    print(_subtle(_divider("-")))
+    print(
+        _format_metric(
+            "verifiers loader",
+            "from environments.helixenv.af_partition import load_environment",
+            icon="[HX]",
+        )
+    )
+    print(
+        _format_metric(
+            "prime integration",
+            "register_helix_envs(lambda env_id, fn: ...)",
+            icon="[HX]",
+        )
+    )
 
     return 0
 
@@ -914,6 +1282,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         pz.add_argument("--seed", type=int, default=1)
         az = pz.parse_args(argv[1:])
         return run_analyze(az)
+
+    if argv and len(argv) > 0 and argv[0] in {"helixenv", "helix-env", "oa-env", "oa"}:
+        po = _build_helix_env_parser(prog="helix helixenv")
+        helix_args = po.parse_args(argv[1:])
+        return run_helix_env(helix_args)
+
+    if argv and len(argv) > 0 and argv[0] == "env":
+        if len(argv) == 1:
+            return run_interactive()
+        env_cmd = argv[1]
+        rest = argv[2:]
+        if env_cmd in {"operator", "oa", "analytics", "helix"}:
+            po = _build_helix_env_parser(prog="helix env helix")
+            helix_args = po.parse_args(rest)
+            return run_helix_env(helix_args)
+        if env_cmd in {"summary", "overview"}:
+            return run_helixenv_overview()
+        if env_cmd in {"interactive", "menu"}:
+            return run_interactive()
+        print(f"Unknown environment option: {env_cmd}")
+        print("Use 'operator' or 'helix'.")
+        return 1
 
     p = argparse.ArgumentParser(description="Helix CLI: run diagnostics and plots")
     p.add_argument(

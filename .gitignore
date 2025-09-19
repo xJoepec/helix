@@ -68,3 +68,7 @@ Thumbs.db
 .DS_Store
 
 
+
+# Local environment artifacts
+.helixenv-demo/
+.helixenv/
