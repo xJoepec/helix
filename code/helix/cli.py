@@ -11,7 +11,8 @@ import threading
 import time
 from pathlib import Path
 from time import time as _time
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from textwrap import dedent
 
 import numpy as np
 
@@ -73,38 +74,215 @@ def _import_af_partition_env():
             ) from exc
 
 
+class HelixEnvFormatter(
+    argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter
+):
+    """Formatter that shows defaults while preserving deliberate line breaks."""
+
+
 def _build_helix_env_parser(prog: str = "helix helixenv") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="Helix operator-algebra environment demo (AF partitions)",
+        description=dedent(
+            """
+            Run the Helix operator-algebra environment on a model or dataset.
+
+            Provide your own artefacts (weights, dataset, builder) or fall back to the
+            built-in two-moons generator. Tune diagnostics and reward weighting to
+            mirror Helix Verifiers integrations.
+            """
+        ),
+        epilog=dedent(
+            """
+            Examples:
+              helix helixenv --samples 3000 --noise 0.05 --widths 32,16,16 --epochs 80
+              helix helixenv --data-x data.npy --model-module my_model.py --weights model.pt
+              helix helixenv --ask-api-key --api-key-var HELIX_API_KEY --show-config
+            """
+        ),
+        formatter_class=HelixEnvFormatter,
     )
-    parser.add_argument("--samples", type=int, default=2000)
-    parser.add_argument("--noise", type=float, default=0.08)
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--width", type=int, default=16)
-    parser.add_argument("--d-out", type=int, default=2)
-    parser.add_argument("--epochs", type=int, default=60)
-    parser.add_argument("--no-train", action="store_true")
-    parser.add_argument("--data-x", type=str, default="")
-    parser.add_argument("--data-y", type=str, default="")
-    parser.add_argument("--model-module", type=str, default="")
-    parser.add_argument("--model-func", type=str, default="build_model")
-    parser.add_argument("--model-kwargs", type=str, default="")
-    parser.add_argument("--weights", type=str, default="")
-    parser.add_argument("--max-depth", type=int, default=0, help="Limit depth traversal (0 = all)")
-    parser.add_argument("--mass-weight", type=float, default=1.0)
-    parser.add_argument("--wasted-weight", type=float, default=0.1)
-    parser.add_argument(
+
+    source_group = parser.add_argument_group("Data & model inputs")
+    source_group.add_argument(
+        "--data-x",
+        type=str,
+        default="",
+        metavar="PATH",
+        help="Feature array (.npy/.npz/.csv); omit to generate synthetic two-moons",
+    )
+    source_group.add_argument(
+        "--data-y",
+        type=str,
+        default="",
+        metavar="PATH",
+        help="Optional labels array aligning with data-x",
+    )
+    source_group.add_argument(
+        "--samples",
+        type=int,
+        default=2000,
+        help="Synthetic sample count when data-x is omitted",
+    )
+    source_group.add_argument(
+        "--noise",
+        type=float,
+        default=0.08,
+        help="Noise level for synthetic two-moons data",
+    )
+    source_group.add_argument("--seed", type=int, default=1, help="Random seed for demo data")
+    source_group.add_argument(
+        "--model-module",
+        type=str,
+        default="",
+        metavar="PATH",
+        help="Python file path that defines a model builder",
+    )
+    source_group.add_argument(
+        "--model-func",
+        type=str,
+        default="build_model",
+        metavar="NAME",
+        help="Factory function name within the model module",
+    )
+    source_group.add_argument(
+        "--model-kwargs",
+        type=str,
+        default="",
+        metavar="JSON",
+        help="JSON dict of keyword arguments for the builder",
+    )
+    source_group.add_argument(
+        "--weights",
+        type=str,
+        default="",
+        metavar="PATH",
+        help="Optional state_dict (.pt/.pth) to load before evaluation",
+    )
+    source_group.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Legacy single hidden width; overrides --widths if provided",
+    )
+    source_group.add_argument(
+        "--widths",
+        type=str,
+        default="16,16,16,16",
+        metavar="CSV",
+        help="Comma-separated hidden widths applied per ReLU layer",
+    )
+    source_group.add_argument("--d-out", type=int, default=2, help="Output width for built-in MLP")
+
+    train_group = parser.add_argument_group("Training & optimisation")
+    train_group.add_argument("--epochs", type=int, default=60, help="Training epochs when enabled")
+    train_group.add_argument(
+        "--no-train",
+        action="store_true",
+        help="Skip the lightweight training loop (recommended with pretrained weights)",
+    )
+
+    diag_group = parser.add_argument_group("Diagnostics & search")
+    diag_group.add_argument(
+        "--max-depth",
+        type=int,
+        default=0,
+        help="Limit AF depth traversal (0 processes the full partition tower)",
+    )
+    diag_group.add_argument(
+        "--no-ulam",
+        action="store_true",
+        help="Disable Ulam spectral gap diagnostics (faster runtime)",
+    )
+    diag_group.add_argument(
+        "--ulam-bins",
+        type=int,
+        default=28,
+        help="Grid bins per dimension for the Ulam PF operator",
+    )
+    diag_group.add_argument(
+        "--ulam-samples-per-cell",
+        type=int,
+        default=1,
+        help="Random samples per grid cell when estimating the PF operator",
+    )
+    diag_group.add_argument(
+        "--ulam-eps",
+        type=float,
+        default=0.4,
+        help="Residual block epsilon used in the synthetic PF map",
+    )
+
+    rewards_group = parser.add_argument_group("Reward weights (Helix Verifiers)")
+    rewards_group.add_argument(
+        "--mass-weight",
+        type=float,
+        default=1.0,
+        help="Weight applied to mass consistency error",
+    )
+    rewards_group.add_argument(
+        "--wasted-weight",
+        type=float,
+        default=0.1,
+        help="Weight for penalising wasted AF regions",
+    )
+    rewards_group.add_argument(
+        "--entropy-weight",
+        type=float,
+        default=0.05,
+        help="Weight assigned to combinatorial entropy",
+    )
+    rewards_group.add_argument(
+        "--cp-weight",
+        type=float,
+        default=1.0,
+        help="Weight applied to CP map violations",
+    )
+    rewards_group.add_argument(
+        "--gap-weight",
+        type=float,
+        default=0.5,
+        help="Weight applied to Ulam spectral gap improvements",
+    )
+
+    api_group = parser.add_argument_group("API & integrations")
+    api_group.add_argument(
         "--api-key",
         type=str,
         default="",
-        help="API key for LLM-based judges (exported to the environment for downstream tools)",
+        metavar="KEY",
+        help="API key for LLM-based judges; stored in the configured environment variable",
     )
-    parser.add_argument(
+    api_group.add_argument(
         "--api-key-var",
         type=str,
         default="OPENAI_API_KEY",
-        help="Environment variable name to store the provided API key",
+        metavar="VAR",
+        help="Environment variable used to expose the provided API key",
+    )
+    api_group.add_argument(
+        "--api-key-file",
+        type=str,
+        default="",
+        metavar="PATH",
+        help="Read API key from a file (first non-empty line wins)",
+    )
+    api_group.add_argument(
+        "--ask-api-key",
+        action="store_true",
+        help="Prompt for an API key interactively when none is supplied",
+    )
+
+    util_group = parser.add_argument_group("Utility")
+    util_group.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Print a sanitized summary of resolved arguments before execution",
+    )
+    util_group.add_argument(
+        "--no-layer-summary",
+        action="store_true",
+        help="Skip detailed module/layer breakdown for the loaded model",
     )
     return parser
 
@@ -429,12 +607,555 @@ def _format_metric(label: str, value: str, icon: str = "->") -> str:
     return f"  {icon} {label_txt}: {value}"
 
 
+def _short_path(path: str) -> str:
+    if not path:
+        return "<none>"
+    try:
+        return os.path.basename(path) or path
+    except Exception:
+        return path
+
+
+def _print_helixenv_config(
+    args: argparse.Namespace,
+    *,
+    api_key_var: str,
+    api_key_source: str,
+    api_key_active: bool,
+) -> None:
+    """Pretty-print a summary of the resolved Helix environment arguments."""
+
+    demo_summary = (
+        f"demo | samples={args.samples}, noise={args.noise:g}, seed={args.seed}"
+        if not getattr(args, "data_x", "")
+        else f"dataset={_short_path(args.data_x)}"
+    )
+    if getattr(args, "data_y", ""):
+        demo_summary += f" (labels={_short_path(args.data_y)})"
+
+    if getattr(args, "model_module", ""):
+        model_summary = (
+            f"builder={_short_path(args.model_module)}::{args.model_func}"
+            + (f" kwargs={args.model_kwargs}" if args.model_kwargs else "")
+        )
+    else:
+        widths_display = getattr(args, "widths", "") or "16,16,16,16"
+        if getattr(args, "width", None) is not None:
+            widths_display = f"{args.width} (legacy override)"
+        model_summary = f"builtin MLP widths={widths_display}, d_out={args.d_out}"
+    if getattr(args, "weights", ""):
+        model_summary += f" | weights={_short_path(args.weights)}"
+
+    train_summary = "skipped" if getattr(args, "no_train", False) else f"epochs={args.epochs}"
+
+    ulam_summary = "disabled" if getattr(args, "no_ulam", False) else (
+        f"bins={args.ulam_bins}, samples/cell={args.ulam_samples_per_cell}, eps={args.ulam_eps}"
+    )
+
+    rewards_summary = (
+        f"mass={args.mass_weight}, wasted={args.wasted_weight}, entropy={args.entropy_weight}, "
+        f"cp={args.cp_weight}, gap={args.gap_weight}"
+    )
+
+    api_summary = (
+        f"active via {api_key_var} ({api_key_source})"
+        if api_key_active
+        else f"not set (env var {api_key_var})"
+    )
+
+    print(_subtle(_divider()))
+    print(_headline("Helix Environment Configuration"))
+    print(_format_metric("data", demo_summary, icon="[D]"))
+    print(_format_metric("model", model_summary, icon="[M]"))
+    print(_format_metric("training", train_summary, icon="[T]"))
+    print(_format_metric("ulam", ulam_summary, icon="[U]"))
+    print(_format_metric("rewards", rewards_summary, icon="[R]"))
+    print(_format_metric("max depth", str(args.max_depth or "auto"), icon="[∂]"))
+    print(_format_metric("api", api_summary, icon="[API]"))
+    print(_subtle(_divider("-")))
+
+
+AF_LAYER_CARD_METRICS = (
+    ("mass_err", "mass L1", "log", ".2e"),
+    ("trace_linf", "trace L∞", "log", ".2e"),
+    ("entropy", "entropy", "linear", ".3f"),
+    ("wasted", "wasted", "linear", "int"),
+    ("cp_unital", "cp unital", "log", ".2e"),
+    ("cp_coiso", "cp coiso", "log", ".2e"),
+    ("cp_psd", "cp psd", "log", ".2e"),
+    ("gap", "spectral gap", "linear", ".4f"),
+    ("reward", "reward", "linear", ".4f"),
+)
+
+
+AF_SUMMARY_PLOT_CONFIG = (
+    ("mass_err", "Mass residuals", "log", ".2e"),
+    ("trace_linf", "Trace residuals", "log", ".2e"),
+    ("entropy", "Entropy progression", "linear", ".3f"),
+    ("cp_unital", "CP unital slack", "log", ".2e"),
+    ("cp_psd", "CP PSD slack", "log", ".2e"),
+    ("reward", "Reward trajectory", "linear", ".4f"),
+)
+
+
+def _metric_bounds(values: Sequence[float], *, scale: str) -> Optional[Tuple[float, float]]:
+    numbers: List[float] = []
+    for val in values:
+        if val is None:
+            continue
+        try:
+            float_val = float(val)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(float_val):
+            continue
+        numbers.append(float_val)
+
+    if not numbers:
+        return None
+
+    if scale == "log":
+        positives = [abs(v) for v in numbers if abs(v) > 0]
+        if not positives:
+            return (0.0, 0.0)
+        min_log = min(math.log10(v) for v in positives)
+        max_log = max(math.log10(v) for v in positives)
+        return (min_log, max_log)
+
+    min_v = min(numbers)
+    max_v = max(numbers)
+    return (min_v, max_v)
+
+
+def _metric_ratio(value: float, bounds: Tuple[float, float], *, scale: str) -> float:
+    if scale == "log":
+        min_log, max_log = bounds
+        magnitude = abs(float(value))
+        if magnitude <= 0:
+            return 0.0
+        if math.isclose(max_log, min_log):
+            return 0.5
+        log_v = math.log10(magnitude)
+        ratio = (log_v - min_log) / (max_log - min_log)
+    else:
+        min_v, max_v = bounds
+        if math.isclose(max_v, min_v):
+            return 0.0 if math.isclose(max_v, 0.0) else 0.5
+        ratio = (float(value) - min_v) / (max_v - min_v)
+    return max(0.0, min(1.0, ratio))
+
+
+def _render_bar(ratio: float, *, width: int = 14) -> str:
+    clamped = max(0.0, min(1.0, ratio))
+    filled = int(round(clamped * width))
+    filled = max(0, min(width, filled))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _format_layer_metric_value(value: float, fmt: str) -> str:
+    if fmt == "int":
+        return str(int(round(float(value))))
+    try:
+        return f"{float(value):{fmt}}"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def _render_layer_cards(
+    rows: Sequence[Dict[str, Any]],
+    series_map: Dict[str, Sequence[float]],
+    *,
+    entropy_max: float,
+) -> None:
+    if not rows:
+        return
+
+    bounds_map: Dict[str, Tuple[float, float]] = {}
+    for key, _, scale, _ in AF_LAYER_CARD_METRICS:
+        values = series_map.get(key, [])
+        bounds = _metric_bounds(values, scale=scale) if values else None
+        if bounds is not None:
+            bounds_map[key] = bounds
+
+    if not bounds_map:
+        return
+
+    print(_headline("AF Layer Profiles"))
+    for row in rows:
+        print(_subtle(_divider(".")))
+        heat = _heatmap_for_row(row, entropy_max=entropy_max)
+        header = f"depth {row['depth']} • regions={row['regions']}"
+        header += f" • reward={row['reward']:.4f}"
+        if heat:
+            header += f" • heat {heat}"
+        print(_headline(header))
+
+        for key, label, scale, fmt in AF_LAYER_CARD_METRICS:
+            if key not in bounds_map:
+                continue
+            value = row.get(key)
+            if value is None:
+                continue
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                continue
+            if math.isnan(numeric_value):
+                continue
+            ratio = _metric_ratio(numeric_value, bounds_map[key], scale=scale)
+            bar = _render_bar(ratio)
+            value_str = _format_layer_metric_value(numeric_value, fmt)
+            print(f"  {label:<12} {value_str:>12} |{bar}|")
+
+    print(_subtle(_divider(".")))
+
+
+def _render_cli_barchart(
+    title: str,
+    depths: Sequence[int],
+    values: Sequence[float],
+    *,
+    scale: str = "linear",
+    fmt: str = ".3f",
+    width: int = 30,
+    flagged_depths: Optional[Sequence[int]] = None,
+) -> None:
+    if not values:
+        return
+
+    cleaned: List[Tuple[int, float]] = []
+    for depth, raw_val in zip(depths, values):
+        try:
+            val = float(raw_val)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(val):
+            continue
+        cleaned.append((depth, val))
+
+    if not cleaned:
+        return
+
+    if scale == "log":
+        eps = 1e-18
+        logs = [math.log10(max(abs(val), eps)) for _, val in cleaned]
+        lo = min(logs)
+        hi = max(logs)
+        if math.isclose(lo, hi):
+            lo -= 1e-6
+            hi += 1e-6
+        ratios = []
+        for (_, val), log_val in zip(cleaned, logs):
+            ratio = (log_val - lo) / (hi - lo)
+            ratios.append((val, ratio))
+    else:
+        vals = [val for _, val in cleaned]
+        lo = min(vals)
+        hi = max(vals)
+        if math.isclose(lo, hi):
+            lo -= 1e-6
+            hi += 1e-6
+        ratios = []
+        for _, val in cleaned:
+            ratio = (val - lo) / (hi - lo)
+            ratios.append((val, ratio))
+
+    print(_headline(title))
+    flagged_set = set(flagged_depths or [])
+
+    for (depth, _), (value, ratio) in zip(cleaned, ratios):
+        filled = int(round(max(0.0, min(1.0, ratio)) * width))
+        bar = "█" * filled + "░" * (width - filled)
+        line = f"  d{depth:<3} |{bar}| {value:{fmt}}"
+        if depth in flagged_set:
+            line = _highlight_line(line)
+        print(line)
+
+
+def _render_summary_plots(rows: Sequence[Dict[str, Any]]) -> None:
+    if not rows:
+        return
+
+    flagged_depths = [row["depth"] for row in rows if _row_is_flagged(row)]
+    print(_headline("Summary Plots"))
+    for key, title, scale, fmt in AF_SUMMARY_PLOT_CONFIG:
+        values: List[float] = []
+        depths: List[int] = []
+        for row in rows:
+            value = row.get(key)
+            if value is None:
+                continue
+            try:
+                float_val = float(value)
+            except (TypeError, ValueError):
+                continue
+            values.append(float_val)
+            depths.append(row["depth"])
+        if not values:
+            continue
+        print(_subtle(_divider(".")))
+        _render_cli_barchart(
+            title,
+            depths,
+            values,
+            scale=scale,
+            fmt=fmt,
+            flagged_depths=flagged_depths,
+        )
+    print(_subtle(_divider(".")))
+
+
+def _print_af_summary(rows: Sequence[Dict[str, Any]], *, computed_gap: Optional[float]) -> None:
+    if not rows:
+        return
+
+    flagged = sum(1 for row in rows if _row_is_flagged(row))
+
+    mass_worst = max(rows, key=lambda r: r["mass_err"])
+    trace_worst = max(rows, key=lambda r: r["trace_linf"])
+    entropy_peak = max(rows, key=lambda r: r["entropy"])
+    cp_unital_worst = max(rows, key=lambda r: r["cp_unital"])
+    cp_psd_worst = max(rows, key=lambda r: r["cp_psd"])
+    reward_best = max(rows, key=lambda r: r["reward"])
+    reward_worst = min(rows, key=lambda r: r["reward"])
+
+    gap_values = [
+        float(row["gap"])
+        for row in rows
+        if isinstance(row["gap"], (int, float)) and not math.isnan(float(row["gap"]))
+    ]
+
+    print(_headline("Summary"))
+    print(
+        _format_metric(
+            "mass residual",
+            f"max {mass_worst['mass_err']:.2e} @ depth {mass_worst['depth']}",
+            icon="[Σ]",
+        )
+    )
+    print(
+        _format_metric(
+            "trace residual",
+            f"max {trace_worst['trace_linf']:.2e} @ depth {trace_worst['depth']}",
+            icon="[Σ]",
+        )
+    )
+    print(
+        _format_metric(
+            "cp slack",
+            (
+                f"unital {cp_unital_worst['cp_unital']:.2e} @ depth {cp_unital_worst['depth']} | "
+                f"psd {cp_psd_worst['cp_psd']:.2e} @ depth {cp_psd_worst['depth']}"
+            ),
+            icon="[Σ]",
+        )
+    )
+    print(
+        _format_metric(
+            "entropy peak",
+            f"{entropy_peak['entropy']:.3f} @ depth {entropy_peak['depth']}",
+            icon="[Σ]",
+        )
+    )
+    print(
+        _format_metric(
+            "reward span",
+            f"best {reward_best['reward']:.4f} / worst {reward_worst['reward']:.4f}",
+            icon="[Σ]",
+        )
+    )
+    if gap_values:
+        print(
+            _format_metric(
+                "spectral gap",
+                f"range {min(gap_values):.4f}-{max(gap_values):.4f}",
+                icon="[Σ]",
+            )
+        )
+    elif computed_gap is not None:
+        print(
+            _format_metric(
+                "spectral gap",
+                f"{computed_gap:.4f} (global)",
+                icon="[Σ]",
+            )
+        )
+    print(
+        _format_metric(
+            "flags",
+            f"{flagged} depth(s) over tolerance",  # intentionally pluralised
+            icon="[Σ]",
+        )
+    )
+
+
+def _format_module_name(name: str, *, max_width: int = 44) -> str:
+    if not name:
+        return "<root>"
+    parts = name.split(".")
+    indent = "  " * (len(parts) - 1)
+    label = parts[-1]
+    display = f"{indent}{label}"
+    if len(display) <= max_width:
+        return display
+    return display[: max_width - 1] + "…"
+
+
+def _format_human_count(value: int) -> str:
+    abs_val = abs(value)
+    if abs_val < 1000:
+        return f"{value}"
+    for unit, denom in (("K", 1_000), ("M", 1_000_000), ("B", 1_000_000_000), ("T", 1_000_000_000_000)):
+        if abs_val < denom * 1000:
+            return f"{value / denom:.2f}{unit}"
+    return f"{value}"  # fallback
+
+
+def _collect_model_layers(model: nn.Module) -> List[Dict[str, Any]]:
+    layers: List[Dict[str, Any]] = []
+    for name, module in model.named_modules():
+        if name == "":
+            continue
+
+        direct_params = list(module.named_parameters(recurse=False))
+        param_count = sum(param.numel() for _, param in direct_params)
+        trainable_count = sum(param.numel() for _, param in direct_params if param.requires_grad)
+        buffers = list(module.named_buffers(recurse=False))
+        buffer_count = sum(buf.numel() for _, buf in buffers)
+        is_leaf = not any(True for _ in module.children())
+
+        if param_count == 0 and buffer_count == 0 and not is_leaf:
+            continue
+
+        layers.append(
+            {
+                "name": name,
+                "type": module.__class__.__name__,
+                "params": param_count,
+                "trainable": trainable_count,
+                "buffers": buffer_count,
+                "is_leaf": is_leaf,
+            }
+        )
+    return layers
+
+
+def _print_model_layers(model: nn.Module) -> None:
+    layers = _collect_model_layers(model)
+    if not layers:
+        print(_headline("Model Layers"))
+        print(_subtle("No parameterised layers found."))
+        return
+
+    total_params = sum(layer["params"] for layer in layers)
+    total_trainable = sum(layer["trainable"] for layer in layers)
+    total_buffers = sum(layer["buffers"] for layer in layers)
+
+    print(_headline("Model Layers"))
+    summary_bits = [
+        f"layers={len(layers)}",
+        f"trainable={_format_human_count(total_trainable)}",
+        f"params={_format_human_count(total_params)}",
+    ]
+    if total_buffers:
+        summary_bits.append(f"buffers={_format_human_count(total_buffers)}")
+    print(_subtle(" | ".join(summary_bits)))
+
+    header = (
+        f"{'#':>4} {'module':<46} {'type':<24} "
+        f"{'trainable':>12} {'params':>12} {'buffers':>10} {'pct':>6}"
+    )
+    print(header)
+    print(_subtle("-" * len(header)))
+
+    for idx, layer in enumerate(layers, start=1):
+        trainable = layer["trainable"]
+        params = layer["params"]
+        buffers = layer["buffers"]
+        pct = (trainable / total_trainable * 100.0) if total_trainable else 0.0
+        name_fmt = _format_module_name(layer["name"], max_width=46)
+        type_fmt = layer["type"][:24]
+        line = (
+            f"{idx:>4} {name_fmt:<46} {type_fmt:<24} "
+            f"{_format_human_count(trainable):>12} {_format_human_count(params):>12} "
+            f"{_format_human_count(buffers):>10} {pct:>6.2f}"
+        )
+        print(line)
+
+    print(_subtle(_divider("-")))
+
+
 def _prepare_sequence(seq: Union[Sequence[float], np.ndarray]) -> str:
     if isinstance(seq, np.ndarray):
         arr = seq.tolist()
     else:
         arr = list(seq)
     return ", ".join(f"{x:.3g}" if isinstance(x, (int, float)) else str(x) for x in arr)
+
+
+def _sparkline(values: Sequence[float], *, eps: float = 1e-18) -> str:
+    glyphs = "▁▂▃▄▅▆▇█"
+    if not values:
+        return ""
+    arr = np.asarray(values, dtype=np.float64)
+    if np.all(arr <= 0):
+        return glyphs[0] * len(values)
+    safe = np.where(arr > 0, arr, eps)
+    log_vals = np.log10(safe)
+    min_v = np.min(log_vals)
+    max_v = np.max(log_vals)
+    if np.isclose(max_v, min_v):
+        idx = int((len(glyphs) - 1) / 2)
+        return glyphs[idx] * len(values)
+    norm = (log_vals - min_v) / (max_v - min_v)
+    indices = np.clip(np.round(norm * (len(glyphs) - 1)), 0, len(glyphs) - 1).astype(int)
+    return "".join(glyphs[i] for i in indices)
+
+
+def _sequence_with_sparkline(values: Sequence[float]) -> str:
+    if not values:
+        return "-"
+    return f"{_prepare_sequence(values)} | {_sparkline(values)}"
+
+
+def _shade_metric(value: float, thresholds: Sequence[float], *, normalized: bool = False) -> str:
+    glyphs = "·░▒▓"
+    val = float(value)
+    if normalized:
+        val = max(0.0, min(1.0, val))
+    for idx, threshold in enumerate(thresholds):
+        if val <= threshold:
+            return glyphs[idx]
+    return glyphs[-1]
+
+
+def _heatmap_for_row(row: Dict[str, Any], *, entropy_max: float) -> str:
+    denom = entropy_max if entropy_max > 0 else 1.0
+    entropy_norm = row["entropy"] / denom
+    return "".join(
+        [
+            _shade_metric(row["mass_err"], (1e-12, 1e-9, 1e-6)),
+            _shade_metric(row["trace_linf"], (1e-12, 1e-9, 1e-6)),
+            _shade_metric(entropy_norm, (0.25, 0.5, 0.75), normalized=True),
+            _shade_metric(row["cp_unital"], (1e-4, 1e-2, 1e-1)),
+            _shade_metric(row["cp_psd"], (1e-12, 1e-9, 1e-6)),
+        ]
+    )
+
+
+def _highlight_line(text: str) -> str:
+    if _supports_color():
+        return _style(text, color="91", bold=True)
+    return f"! {text}"
+
+
+def _row_is_flagged(row: Dict[str, Any]) -> bool:
+    return bool(
+        row["mass_err"] > 1e-6
+        or row["trace_linf"] > 1e-6
+        or row["cp_unital"] > 1e-1
+        or row["cp_psd"] > 1e-6
+    )
 
 
 def _prompt_text(prompt: str, default: Optional[str] = None) -> str:
@@ -481,6 +1202,75 @@ def _prompt_bool(prompt: str, default: bool = False) -> bool:
         print("Please answer with y or n.")
 
 
+def _parse_widths_csv(raw: str) -> Tuple[int, ...]:
+    entries = []
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            entries.append(int(token))
+        except ValueError as exc:
+            raise ValueError(f"Invalid width '{token}' in --widths") from exc
+    return tuple(entries)
+
+
+def _resolve_hidden_widths(widths_csv: str, legacy_width: Optional[int]) -> Tuple[int, ...]:
+    widths = _parse_widths_csv(widths_csv)
+    if not widths:
+        if legacy_width is None:
+            # preserve historical 2-layer default when nothing provided
+            return (16, 16)
+        return (legacy_width, legacy_width)
+    if legacy_width is not None:
+        return tuple(legacy_width for _ in widths)
+    return widths
+
+
+def _hidden_widths_from_args(args: argparse.Namespace) -> Tuple[int, ...]:
+    widths_csv = getattr(args, "widths", "") or ""
+    legacy_width = getattr(args, "width", None)
+    return _resolve_hidden_widths(widths_csv, legacy_width)
+
+
+def _estimate_ulam_spectral_gap(
+    dim: int,
+    *,
+    bins: int,
+    samples_per_cell: int,
+    eps: float,
+) -> Optional[float]:
+    if torch is None or nn is None:
+        return None
+
+    h2 = nn.Sequential(nn.Linear(dim, 16), nn.ReLU(), nn.Linear(16, dim))
+    with torch.no_grad():
+        for param in h2.parameters():
+            param.mul_(0.1)
+
+    def F_block(x_np: np.ndarray) -> np.ndarray:
+        x_t = torch.from_numpy(x_np.astype(np.float32))
+        y_ = x_t + eps * h2(x_t)
+        return y_.detach().numpy().astype(np.float64)
+
+    lo = np.full((dim,), -2.0)
+    hi = np.full((dim,), 2.5)
+    if dim >= 2:
+        lo[:2] = np.array([-2.0, -1.5])
+        hi[:2] = np.array([3.0, 2.5])
+
+    try:
+        P, _ = ulam_pf(
+            F_block,
+            (lo, hi),
+            bins_per_dim=bins,
+            samples_per_cell=samples_per_cell,
+        )
+    except Exception:
+        return None
+    return float(spectral_gap(P))
+
+
 def _interactive_collect_helix_args() -> argparse.Namespace:
     print(_headline("Operator Algebra Environment Setup"))
     print(_subtle("Leave entries blank to fall back to demo defaults."))
@@ -497,14 +1287,41 @@ def _interactive_collect_helix_args() -> argparse.Namespace:
     samples = _prompt_int("Demo samples (used when no dataset)", 2000)
     noise = _prompt_float("Demo noise level", 0.08)
     seed = _prompt_int("Random seed", 1)
-    width = _prompt_int("Demo hidden width", 16)
+    while True:
+        widths_csv = _prompt_text(
+            "Hidden layer widths (comma separated)", "16,16,16,16"
+        ).strip()
+        try:
+            parsed_widths = _parse_widths_csv(widths_csv)
+        except ValueError as exc:
+            print(_error(str(exc)))
+            continue
+        if not parsed_widths:
+            widths_csv = "16,16,16,16"
+            parsed_widths = _parse_widths_csv(widths_csv)
+        break
+    width = parsed_widths[0] if parsed_widths else 16
     d_out = _prompt_int("Demo output width", 2)
     epochs = _prompt_int("Training epochs (demo or labelled data)", 60)
     max_depth = _prompt_int("Max AF depth (0 = all)", 0)
     mass_weight = _prompt_float("Reward weight: mass error", 1.0)
     wasted_weight = _prompt_float("Reward weight: wasted regions", 0.1)
+    entropy_weight = _prompt_float("Reward weight: entropy", 0.05)
+    cp_weight = _prompt_float("Reward weight: CP violations", 1.0)
+    gap_weight = _prompt_float("Reward weight: spectral gap", 0.5)
+    run_ulam = _prompt_bool("Run Ulam spectral gap diagnostic", False)
+    if run_ulam:
+        ulam_bins = _prompt_int("Ulam bins per dimension", 28)
+        ulam_samples_per_cell = _prompt_int("Ulam samples per cell", 1)
+        ulam_eps = _prompt_float("Residual block epsilon (Ulam)", 0.4)
+    else:
+        ulam_bins = 28
+        ulam_samples_per_cell = 1
+        ulam_eps = 0.4
     api_key = _prompt_secret("LLM judge API key (leave blank to skip)").strip()
     api_key_var = _prompt_text("API key env var", "OPENAI_API_KEY") or "OPENAI_API_KEY"
+    show_config = _prompt_bool("Show configuration summary before running", True)
+    show_layers = _prompt_bool("Display model layer breakdown", True)
     no_train_default = bool(weights or (data_x and not data_y))
     no_train = _prompt_bool("Skip training (set true if model already trained)", no_train_default)
     return argparse.Namespace(
@@ -518,14 +1335,26 @@ def _interactive_collect_helix_args() -> argparse.Namespace:
         noise=noise,
         seed=seed,
         width=width,
+        widths=widths_csv,
         epochs=epochs,
         no_train=no_train,
         max_depth=max_depth,
         mass_weight=mass_weight,
         wasted_weight=wasted_weight,
+        entropy_weight=entropy_weight,
+        cp_weight=cp_weight,
+        gap_weight=gap_weight,
+        no_ulam=not run_ulam,
+        ulam_bins=ulam_bins,
+        ulam_samples_per_cell=ulam_samples_per_cell,
+        ulam_eps=ulam_eps,
         d_out=d_out,
         api_key=api_key,
         api_key_var=api_key_var,
+        api_key_file="",
+        ask_api_key=False,
+        show_config=show_config,
+        no_layer_summary=not show_layers,
     )
 
 
@@ -830,7 +1659,8 @@ def run_demo(args: argparse.Namespace) -> int:
     _seed_torch(args.seed)
 
     X, y = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
-    model = MLP(d_in=2, widths=(args.width, args.width), d_out=2)
+    hidden_widths = _hidden_widths_from_args(args)
+    model = MLP(d_in=2, widths=hidden_widths, d_out=2)
 
     if not args.no_train:
         opt = torch.optim.Adam(model.parameters(), lr=1e-2)
@@ -883,7 +1713,7 @@ def run_demo(args: argparse.Namespace) -> int:
             f"samples={args.samples}",
             f"noise={args.noise:.3f}",
             f"seed={args.seed}",
-            f"width={args.width}",
+            f"widths={','.join(map(str, hidden_widths))}",
         ]
     )
     print(_subtle(meta))
@@ -937,17 +1767,60 @@ def run_helix_env(args: argparse.Namespace) -> int:
 
     AFPartitionEnv = _import_af_partition_env()
 
-    api_key = getattr(args, "api_key", "")
     api_key_var = getattr(args, "api_key_var", "OPENAI_API_KEY") or "OPENAI_API_KEY"
-    if api_key:
-        os.environ[api_key_var] = api_key
+    api_key_source = "cli flag"
+    resolved_api_key = (getattr(args, "api_key", "") or "").strip()
+
+    if not resolved_api_key and getattr(args, "api_key_file", ""):
+        api_key_source = f"file:{_short_path(args.api_key_file)}"
+        path = Path(args.api_key_file).expanduser()
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    candidate = line.strip()
+                    if candidate:
+                        resolved_api_key = candidate
+                        break
+            if resolved_api_key:
+                print(_subtle(f"Loaded API key from {path}."))
+        except FileNotFoundError:
+            print(_error(f"API key file not found: {path}"))
+            api_key_source = "missing file"
+        except OSError as exc:
+            print(_error(f"Unable to read API key file {path}: {exc}"))
+            api_key_source = "unreadable file"
+
+    if not resolved_api_key and getattr(args, "ask_api_key", False):
+        if _is_tty():
+            resolved_api_key = _prompt_secret("Enter API key").strip()
+            api_key_source = "interactive prompt"
+        else:
+            print(_error("Cannot prompt for API key because stdout is not a TTY."))
+            api_key_source = "prompt unavailable"
+
+    api_key_active = False
+    if resolved_api_key:
+        os.environ[api_key_var] = resolved_api_key
+        api_key_active = True
         print(
             _subtle(
                 f"Stored API key in environment variable {api_key_var} for Helix Verifiers integrations."
             )
         )
     elif os.environ.get(api_key_var):
+        api_key_source = "existing environment"
+        api_key_active = True
         print(_subtle(f"Using API key from environment variable {api_key_var}."))
+    else:
+        api_key_source = "not provided"
+
+    if getattr(args, "show_config", False):
+        _print_helixenv_config(
+            args,
+            api_key_var=api_key_var,
+            api_key_source=api_key_source,
+            api_key_active=api_key_active,
+        )
 
     _seed_torch(args.seed)
 
@@ -966,6 +1839,8 @@ def run_helix_env(args: argparse.Namespace) -> int:
     else:
         X, y = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
 
+    hidden_widths = _hidden_widths_from_args(args)
+
     if args.model_module:
         builder = _dynamic_import_builder(args.model_module, args.model_func)
         kwargs: dict[str, Any] = {}
@@ -981,8 +1856,7 @@ def run_helix_env(args: argparse.Namespace) -> int:
             raise TypeError("Builder must return a torch.nn.Module")
     else:
         d_in = int(X.shape[1]) if X.ndim == 2 else 1
-        widths = (args.width, args.width)
-        model = MLP(d_in=d_in, widths=widths, d_out=args.d_out)
+        model = MLP(d_in=d_in, widths=hidden_widths, d_out=args.d_out)
 
     if getattr(args, "weights", ""):
         state = torch.load(args.weights, map_location="cpu")
@@ -1009,7 +1883,28 @@ def run_helix_env(args: argparse.Namespace) -> int:
         max_depth=max_depth,
         mass_weight=args.mass_weight,
         wasted_weight=args.wasted_weight,
+        entropy_weight=args.entropy_weight,
+        cp_weight=args.cp_weight,
+        gap_weight=args.gap_weight,
     )
+
+    computed_gap: Optional[float] = None
+    if not getattr(args, "no_ulam", False):
+        dim = int(X.shape[1]) if X.ndim == 2 else 2
+        computed_gap = _estimate_ulam_spectral_gap(
+            dim,
+            bins=args.ulam_bins,
+            samples_per_cell=args.ulam_samples_per_cell,
+            eps=args.ulam_eps,
+        )
+        if computed_gap is not None:
+            env.update_spectral_gaps([computed_gap] * len(env.levels))
+        else:
+            print(
+                _subtle(
+                    "[warn] Ulam spectral gap unavailable; continuing without gap reward"
+                )
+            )
 
     _animate_banner(loops=1, fps=18.0)
     print(_subtle(_divider()))
@@ -1027,12 +1922,28 @@ def run_helix_env(args: argparse.Namespace) -> int:
     if args.model_module:
         meta_bits.append(f"model={os.path.basename(args.model_module)}")
     else:
-        meta_bits.append(f"demo_width={args.width}")
+        widths_display = getattr(args, "widths", "") or ",".join(map(str, hidden_widths))
+        meta_bits.append(f"demo_widths={widths_display}")
     if getattr(args, "weights", ""):
         meta_bits.append("weights=loaded")
     if args.no_train or (y is None):
         meta_bits.append("training=skipped")
+    meta_bits.append(f"ulam={'off' if getattr(args, 'no_ulam', False) else 'on'}")
     print(_subtle(" | ".join(meta_bits)))
+    print(
+        _format_metric(
+            "reward weights",
+            (
+                f"mass={args.mass_weight:.2f}, waste={args.wasted_weight:.2f}, "
+                f"entropy={args.entropy_weight:.2f}, cp={args.cp_weight:.2f}, "
+                f"gap={args.gap_weight:.2f}"
+            ),
+            icon="[HX]",
+        )
+    )
+    if not getattr(args, "no_layer_summary", False):
+        _print_model_layers(model)
+        print()
     print(_headline("AF levels"))
 
     rows = []
@@ -1043,8 +1954,14 @@ def run_helix_env(args: argparse.Namespace) -> int:
             {
                 "depth": obs["depth"],
                 "regions": obs["n_regions"],
-                "mass_err": obs["mass_error"],
+                "mass_err": float(obs["mass_error"]),
+                "trace_linf": float(obs.get("trace_residual_linf", 0.0)),
                 "wasted": obs["wasted_regions"],
+                "entropy": float(obs.get("combinatorial_entropy", 0.0)),
+                "cp_unital": float(obs.get("cp_unital_err", 0.0)),
+                "cp_coiso": float(obs.get("cp_coisometry_err", 0.0)),
+                "cp_psd": float(obs.get("cp_psd_violation", 0.0)),
+                "gap": obs.get("spectral_gap"),
                 "reward": step.reward,
             }
         )
@@ -1052,13 +1969,75 @@ def run_helix_env(args: argparse.Namespace) -> int:
             break
         step = env.step()
 
-    header = f"{'depth':>5} {'regions':>9} {'mass_err':>12} {'wasted':>8} {'reward':>10}"
+    entropy_max = max((row["entropy"] for row in rows), default=0.0)
+
+    header = (
+        f"{'depth':>5} {'regions':>9} {'mass_L1':>12} {'trace_inf':>11} "
+        f"{'wasted':>8} {'entropy':>9} {'cp_uni':>9} {'cp_psd':>9} {'gap':>8} {'reward':>10} {'heat':>6}"
+    )
     print(header)
     print(_subtle("-" * len(header)))
     for row in rows:
-        print(
-            f"{row['depth']:>5} {row['regions']:>9} {row['mass_err']:>12.4e} {row['wasted']:>8} {row['reward']:>10.4f}"
+        gap_val = row["gap"]
+        if isinstance(gap_val, (int, float)):
+            gap_float = float(gap_val)
+            gap_field = f"{gap_float:>8.4f}" if not math.isnan(gap_float) else f"{'-':>8}"
+        else:
+            gap_field = f"{'-':>8}"
+        heat_field = _heatmap_for_row(row, entropy_max=entropy_max)
+        line = (
+            f"{row['depth']:>5} "
+            f"{row['regions']:>9} "
+            f"{row['mass_err']:>12.4e} "
+            f"{row['trace_linf']:>11.4e} "
+            f"{row['wasted']:>8} "
+            f"{row['entropy']:>9.4f} "
+            f"{row['cp_unital']:>9.2e} "
+            f"{row['cp_psd']:>9.2e} "
+            f"{gap_field} "
+            f"{row['reward']:>10.4f} "
+            f"{heat_field:>6}"
         )
+        if _row_is_flagged(row):
+            line = _highlight_line(line)
+        print(line)
+
+    mass_series = [row["mass_err"] for row in rows]
+    trace_series = [row["trace_linf"] for row in rows]
+    entropy_series = [row["entropy"] for row in rows]
+    cp_unital_series = [row["cp_unital"] for row in rows]
+    cp_coiso_series = [row["cp_coiso"] for row in rows]
+    cp_psd_series = [row["cp_psd"] for row in rows]
+    wasted_series = [row["wasted"] for row in rows]
+    reward_series = [row["reward"] for row in rows]
+    gap_series = [
+        float(row["gap"])
+        for row in rows
+        if isinstance(row["gap"], (int, float)) and not math.isnan(float(row["gap"]))
+    ]
+    print(_format_metric("mass L1", _sequence_with_sparkline(mass_series), icon="[M]"))
+    print(_format_metric("trace L∞", _sequence_with_sparkline(trace_series), icon="[T]"))
+    print(_format_metric("entropy", _sequence_with_sparkline(entropy_series), icon="[E]"))
+    print(_format_metric("cp unital", _sequence_with_sparkline(cp_unital_series), icon="[C]"))
+    print(_format_metric("cp coiso", _sequence_with_sparkline(cp_coiso_series), icon="[C]"))
+    print(_format_metric("cp psd", _sequence_with_sparkline(cp_psd_series), icon="[C]"))
+    if computed_gap is not None:
+        print(_format_metric("spectral gap", f"{computed_gap:.4f}", icon="[U]"))
+
+    series_map = {
+        "mass_err": mass_series,
+        "trace_linf": trace_series,
+        "entropy": entropy_series,
+        "wasted": wasted_series,
+        "cp_unital": cp_unital_series,
+        "cp_coiso": cp_coiso_series,
+        "cp_psd": cp_psd_series,
+        "gap": gap_series,
+        "reward": reward_series,
+    }
+    _render_layer_cards(rows, series_map, entropy_max=entropy_max)
+    _print_af_summary(rows, computed_gap=computed_gap)
+    _render_summary_plots(rows)
 
     print(_subtle(_divider("-")))
     print(
@@ -1101,6 +2080,8 @@ def run_analyze(args: argparse.Namespace) -> int:
             raise ValueError("data_y length must match number of rows in data_x")
 
     # Build or import model
+    hidden_widths = _hidden_widths_from_args(args)
+
     if args.model_module:
         builder = _dynamic_import_builder(args.model_module, args.model_func)
         kwargs = {}
@@ -1116,8 +2097,7 @@ def run_analyze(args: argparse.Namespace) -> int:
             raise TypeError("Builder must return a torch.nn.Module")
     else:
         d_in = int(X.shape[1]) if X.ndim == 2 else 2
-        widths = (args.width, args.width)
-        model = MLP(d_in=d_in, widths=widths, d_out=args.d_out)
+        model = MLP(d_in=d_in, widths=hidden_widths, d_out=args.d_out)
 
     # Optional weights
     if args.weights:
@@ -1318,7 +2298,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--samples", type=int, default=4000)
     p.add_argument("--noise", type=float, default=0.07)
     p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--width", type=int, default=16)
+    p.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Legacy single hidden width; overrides --widths when provided",
+    )
+    p.add_argument(
+        "--widths",
+        type=str,
+        default="16,16,16,16",
+        help="Comma-separated hidden widths for the demo network",
+    )
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--no-train", action="store_true")
     p.add_argument("--ulam-bins", type=int, default=25, help="Ulam bins per dimension")
@@ -1357,7 +2348,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             args.no_show,
             args.samples != 4000,
             args.noise != 0.07,
-            args.width != 16,
+            args.width is not None,
+            args.widths != "16,16,16,16",
             args.epochs != 100,
             args.ulam_bins != 25,
             args.ulam_samples_per_cell != 1,
