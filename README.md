@@ -5,9 +5,11 @@ Helix turns the “deep nets as manifold sculptors” picture into computable di
 What Helix gives you
 - AF partitions (ReLU): Extract refining partitions across depth, build incidence B_k, masses τ_k, and dimension‑group style summaries.
 - CP embeddings (nonlinearity): Construct numerically stable unital CP maps Φ(X)=V* X V from incidence and masses; sanity‑check unitality/PSD and coisometry.
-- Flow diagnostics (invertible blocks): Ulam–Perron–Frobenius discretization with barycentric mass splitting and multi‑samples per cell; read spectral gaps.
-- Sparse structure: Parent‑pointer representation of refinements for O(n) memory and fast mass aggregation.
-- CLI, TUI and plots: One‑command run to generate region, mass‑consistency, CP, and Ulam spectra plots; optional interactive TUI.
+- Flow diagnostics (invertible blocks): Ulam–Perron–Frobenius discretization with barycentric mass splitting and multi-samples per cell; read spectral gaps.
+- Topology signals: Persistent homology (β₀/β₁/β₂) and lifetime summaries for every dataset, with automatic fallbacks when specialised libraries are absent.
+- Capacity monitoring: Singular-value based capacity-loss scores per trainable layer to flag plasticity collapse and wasted width.
+- Sparse structure: Parent-pointer representation of refinements for O(n) memory and fast mass aggregation.
+- CLI, TUI and plots: One-command run to generate region, mass-consistency, CP, and Ulam spectra plots; optional interactive TUI.
 
 Install
 - Python 3.10+
@@ -18,7 +20,7 @@ python3 -m venv .venv && source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -e .
 # Optional extras
-python3 -m pip install torch sympy matplotlib
+python3 -m pip install torch sympy matplotlib ripser
 ```
 
 Quickstart

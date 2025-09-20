@@ -7,10 +7,16 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, Optional, Sequence
 
 import numpy as np
+from helix import (
+    CapacityLossMetrics,
+    PersistentHomologySummary,
+    build_V_from_incidence,
+    sanity_check_ucp,
+)
 
 try:  # pragma: no cover - optional dependency
     from datasets import Dataset
@@ -19,10 +25,27 @@ except Exception:  # pragma: no cover
 
 try:  # pragma: no cover - optional dependency at runtime
     import verifiers as vf
-    from verifiers import Parser
-    from verifiers.core import Env as _VFEnv
-    from verifiers.core import Step as _VFStep
-    from verifiers.types import Messages
+    # Modern verifiers exposes Parser and Messages at the top-level
+    try:
+        from verifiers import Parser, Messages  # type: ignore[attr-defined]
+    except Exception:
+        # Fallback: retrieve from module attributes if available
+        Parser = getattr(vf, "Parser", None)  # type: ignore[assignment]
+        Messages = getattr(vf, "Messages", list)  # type: ignore[assignment]
+    # Older Helix code referenced verifiers.core.{Env, Step}. These are not
+    # public in modern verifiers; fall back to lightweight shims.
+    try:  # type: ignore[unused-ignore]
+        from verifiers.core import Env as _VFEnv  # type: ignore[import-not-found]
+        from verifiers.core import Step as _VFStep  # type: ignore[import-not-found]
+    except Exception:
+        _VFEnv = object  # type: ignore[assignment]
+
+        @dataclass
+        class _VFStep:  # type: ignore[override]
+            obs: Dict[str, Any]
+            reward: float
+            done: bool
+            info: Dict[str, Any]
 except Exception:  # pragma: no cover - graceful fallback for tests / dev shells
     vf = None
     Parser = None
@@ -51,6 +74,10 @@ class AFObservation:
     mass_error: float
     wasted_regions: int
     combinatorial_entropy: float
+    cp_unital_err: float | None = None
+    cp_coiso_err: float | None = None
+    cp_psd_violation: float | None = None
+    spectral_gap: float | None = None
 
     def to_dict(self) -> Dict[str, Any]:  # pragma: no cover - tiny wrapper
         return {
@@ -60,6 +87,10 @@ class AFObservation:
             "mass_error": self.mass_error,
             "wasted_regions": self.wasted_regions,
             "combinatorial_entropy": self.combinatorial_entropy,
+            "cp_unital_err": self.cp_unital_err,
+            "cp_coisometry_err": self.cp_coiso_err,
+            "cp_psd_violation": self.cp_psd_violation,
+            "spectral_gap": self.spectral_gap,
         }
 
 
@@ -76,6 +107,9 @@ class AFPartitionEnv(_VFEnv):
         mass_tol: float = 1e-10,
         mass_weight: float = 1.0,
         wasted_weight: float = 0.1,
+        entropy_weight: float = 0.05,
+        cp_weight: float = 1.0,
+        gap_weight: float = 0.5,
     ) -> None:
         self._dataset = np.asarray(dataset, dtype=np.float32)
         if self._dataset.ndim != 2:
@@ -105,8 +139,29 @@ class AFPartitionEnv(_VFEnv):
         self._levels = levels
         self._mass_weight = float(mass_weight)
         self._wasted_weight = float(wasted_weight)
+        self._entropy_weight = float(entropy_weight)
+        self._cp_weight = float(cp_weight)
+        self._gap_weight = float(gap_weight)
         self._cursor = 0
         self._history: list[Dict[str, Any]] = []
+
+        # Precompute CP diagnostics per depth
+        extraction = metrics.extraction
+        self._cp_stats: list[dict[str, float]] = []
+        for idx, B in enumerate(extraction.B_list, start=1):
+            tau_prev = np.array([1.0]) if idx == 1 else np.array(extraction.tau_list[idx - 2])
+            tau_cur = np.array(extraction.tau_list[idx - 1])
+            try:
+                V = build_V_from_incidence(np.array(B), tau_prev, tau_cur)
+                diag = sanity_check_ucp(V, trials=6)
+            except Exception:
+                diag = {"unital_err_fro": 0.0, "coisometry_err_fro": 0.0, "psd_min_eig_violation": 0.0}
+            self._cp_stats.append(diag)
+
+        # Optional spectral gaps per depth; can be injected later
+        self._spectral_gaps: list[Optional[float]] = [None] * len(self._levels)
+        self._persistent_summary: Optional[PersistentHomologySummary] = None
+        self._capacity_metrics: Optional[CapacityLossMetrics] = None
 
     # ------------------------------------------------------------------
     # Core Env API
@@ -120,7 +175,13 @@ class AFPartitionEnv(_VFEnv):
         reward = self._reward(level)
         done = len(self._levels) == 1
         self._cursor += 1
-        return _VFStep(obs=obs.to_dict(), reward=reward, done=done, info={"depth": level.depth})
+        info = {"depth": level.depth}
+        if done:
+            if self._persistent_summary is not None:
+                info["persistent_homology"] = asdict(self._persistent_summary)
+            if self._capacity_metrics is not None:
+                info["capacity_metrics"] = asdict(self._capacity_metrics)
+        return _VFStep(obs=obs.to_dict(), reward=reward, done=done, info=info)
 
     def step(self, action: Optional[Dict[str, Any]] = None) -> _VFStep:  # type: ignore[override]
         self._history.append(action or {})
@@ -135,6 +196,11 @@ class AFPartitionEnv(_VFEnv):
         info = {"depth": level.depth}
         if action is not None:
             info["action"] = action
+        if done:
+            if self._persistent_summary is not None:
+                info["persistent_homology"] = asdict(self._persistent_summary)
+            if self._capacity_metrics is not None:
+                info["capacity_metrics"] = asdict(self._capacity_metrics)
         return _VFStep(obs=obs.to_dict(), reward=reward, done=done, info=info)
 
     # ------------------------------------------------------------------
@@ -152,13 +218,44 @@ class AFPartitionEnv(_VFEnv):
     def history(self) -> Sequence[Dict[str, Any]]:
         return tuple(self._history)
 
+    @property
+    def persistent_summary(self) -> Optional[PersistentHomologySummary]:
+        return self._persistent_summary
+
+    def update_persistent_homology(self, summary: PersistentHomologySummary) -> None:
+        self._persistent_summary = summary
+
+    @property
+    def capacity_metrics(self) -> Optional[CapacityLossMetrics]:
+        return self._capacity_metrics
+
+    def update_capacity_metrics(self, metrics: CapacityLossMetrics) -> None:
+        self._capacity_metrics = metrics
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
     def _reward(self, level: AFLevelMetrics) -> float:
-        return float(-self._mass_weight * level.mass_error - self._wasted_weight * level.wasted_regions)
+        idx = int(level.depth) - 1
+        cp = self._cp_stats[idx] if 0 <= idx < len(self._cp_stats) else {}
+        cp_agg = float(cp.get("unital_err_fro", 0.0)) + float(cp.get("coisometry_err_fro", 0.0)) + float(
+            cp.get("psd_min_eig_violation", 0.0)
+        )
+        gap = self._spectral_gaps[idx] if 0 <= idx < len(self._spectral_gaps) else None
+
+        reward = 0.0
+        reward -= self._mass_weight * float(level.mass_error)
+        reward -= self._wasted_weight * float(level.wasted_regions)
+        reward += self._entropy_weight * float(level.combinatorial_entropy)
+        reward -= self._cp_weight * cp_agg
+        if gap is not None:
+            reward += self._gap_weight * float(gap)
+        return float(reward)
 
     def _build_observation(self, level: AFLevelMetrics) -> AFObservation:
+        idx = int(level.depth) - 1
+        cp = self._cp_stats[idx] if 0 <= idx < len(self._cp_stats) else {}
+        gap = self._spectral_gaps[idx] if 0 <= idx < len(self._spectral_gaps) else None
         return AFObservation(
             depth=level.depth,
             feature_vector=af_feature_vector(level),
@@ -166,7 +263,26 @@ class AFPartitionEnv(_VFEnv):
             mass_error=level.mass_error,
             wasted_regions=level.wasted_regions,
             combinatorial_entropy=level.combinatorial_entropy,
+            cp_unital_err=float(cp.get("unital_err_fro", 0.0)) if cp else None,
+            cp_coiso_err=float(cp.get("coisometry_err_fro", 0.0)) if cp else None,
+            cp_psd_violation=float(cp.get("psd_min_eig_violation", 0.0)) if cp else None,
+            spectral_gap=float(gap) if gap is not None else None,
         )
+
+    # ------------------------------------------------------------------
+    # External adapters
+    # ------------------------------------------------------------------
+    def update_spectral_gaps(self, gaps: Sequence[Optional[float] | float]) -> None:
+        values: list[Optional[float]] = []
+        for g in gaps:
+            try:
+                values.append(None if g is None else float(g))
+            except Exception:
+                values.append(None)
+        # Pad/trim to number of levels
+        if len(values) < len(self._levels):
+            values.extend([None] * (len(self._levels) - len(values)))
+        self._spectral_gaps = list(values[: len(self._levels)])
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +302,7 @@ def load_verifiers_environment(
     llm_judge_api_key_var: str = "OPENAI_API_KEY",
     llm_judge_prompt: Optional[str] = None,
     **env_kwargs: Any,
-):
+) -> "vf.Environment":
     """Create a verifiers SingleTurnEnv for operator-algebra diagnostics."""
 
     if vf is None or Parser is None:
@@ -309,10 +425,33 @@ def load_verifiers_environment(
     return env
 
 
-def load_environment(*args: Any, **kwargs: Any):
+def load_environment(
+    *,
+    system_prompt: Optional[str] = None,
+    use_think: bool = False,
+    seed: int = 1234,
+    max_episodes: Optional[int] = None,
+    enable_llm_judge: bool = False,
+    llm_judge_model: str = "gpt-4.1-mini",
+    llm_judge_base_url: str = "https://api.openai.com/v1",
+    llm_judge_api_key_var: str = "OPENAI_API_KEY",
+    llm_judge_prompt: Optional[str] = None,
+    **env_kwargs: Any,
+):
     """Backward compatible alias for verifiers loaders."""
 
-    return load_verifiers_environment(*args, **kwargs)
+    return load_verifiers_environment(
+        system_prompt=system_prompt,
+        use_think=use_think,
+        seed=seed,
+        max_episodes=max_episodes,
+        enable_llm_judge=enable_llm_judge,
+        llm_judge_model=llm_judge_model,
+        llm_judge_base_url=llm_judge_base_url,
+        llm_judge_api_key_var=llm_judge_api_key_var,
+        llm_judge_prompt=llm_judge_prompt,
+        **env_kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------

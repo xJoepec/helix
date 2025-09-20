@@ -1,26 +1,45 @@
 # helixenv
 
-Operator-algebra diagnostics packaged as Verifiers/Prime-compatible environments. The default AF
-partition task mirrors the workflow from `helix-env-idea.md`: agents inspect layer-wise region
-statistics, CP diagnostics, and Ulam transfer metrics, then classify the run as **stable**,
-**capacity-wasted**, or **collapsed**.
+Operator-algebra diagnostics packaged as Verifiers/Prime-compatible environments. Multiple environment
+variants focus on different aspects of neural network operator-algebraic analysis:
+
+- **AF Partition** (`helix/af_partition:v0`): Layer-wise region statistics and mass flow analysis
+- **CP Dilation** (`helix/cp_dilation:v0`): Completely positive map health and Stinespring diagnostics
+- **Ulam Flow** (`helix/ulam_flow:v0`): Perron-Frobenius operator spectral analysis
 
 ### Overview
-- **Environment ID**: `helix/af_partition:v0`
-- **Short description**: Multi-level AF partition diagnostics rendered as MCQ prompts
-- **Tags**: operator-algebra, diagnostics, mcq
+- **Primary Environment ID**: `helix/af_partition:v0`
+- **Short description**: Multi-level operator-algebraic diagnostics with diverse datasets
+- **Tags**: operator-algebra, diagnostics, mcq, manifold-learning, topology
 
 ### Quickstart
-Run the CLI demo that synthesises a two-moons model, extracts diagnostics, and prints layer stats:
+Run with Verifiers (vf-eval) similar to bixbench/hle:
 
 ```bash
-helix helixenv --samples 1024 --noise 0.05 --width 24 --epochs 80
+uv run vf-eval helix/af_partition:v0 -a '{"max_episodes": 8}'
 ```
 
-Provide an API key for LLM-based rubric extensions (stored in `OPENAI_API_KEY` unless overridden):
+Enable the LLM judge by exporting a key (optional):
 
 ```bash
-helix helixenv --api-key sk-your-key --api-key-var OPENAI_API_KEY
+export OPENAI_API_KEY=sk-your-key
+uv run vf-eval helix/af_partition:v0 -a '{"enable_llm_judge": true, "max_episodes": 8}'
+```
+
+Or run the bundled CLI demo with diverse datasets:
+
+```bash
+# Traditional two moons
+helix helixenv --samples 1024 --noise 0.05 --width 24 --epochs 80
+
+# Swiss Roll manifold (3D)
+helix helixenv --dataset-type swiss_roll --samples 1024 --noise 0.02 --width 32 --epochs 100
+
+# XOR non-linear separability test
+helix helixenv --dataset-type xor --samples 800 --noise 0.08 --width 16 --epochs 60
+
+# Concentric circles (radial structure)
+helix helixenv --dataset-type circles --samples 1000 --noise 0.05 --width 20 --epochs 80
 ```
 
 Interactive mode (`helix` with no arguments) also prompts for the key using a non-echoing input. The
@@ -58,15 +77,59 @@ from environments.helixenv import register_helix_envs
 register_helix_envs(registry.register_env)
 ```
 
+### Dataset Types
+
+The AF partition environment now supports multiple dataset types for comprehensive testing:
+
+| Dataset Type | Dimension | Description | Best for testing |
+| ------------ | --------- | ----------- | ---------------- |
+| `moons` | 2D | Traditional two moons | Basic classification, moderate complexity |
+| `swiss_roll` | 3D | Swiss roll manifold | Manifold learning, high-dimensional embedding |
+| `circles` | 2D | Concentric circles | Radial separation, circular decision boundaries |
+| `xor` | 2D | XOR pattern clusters | Non-linear separability, architectural depth |
+| `s_curve` | 3D | S-shaped manifold | Smooth manifold topology, curvature effects |
+
+Additional dataset parameters:
+- `swiss_roll` supports `hole=True` for topological complexity
+- `circles` supports `factor=0.8` for inner/outer circle ratio
+
+### Environment Variants
+
+#### AF Partition (`helix/af_partition:v0`)
+Primary environment focusing on AF algebra partition analysis:
+- Mass consistency tracking across layers
+- Region count and wasted capacity analysis
+- Combinatorial entropy evolution
+- CP map health diagnostics
+- Persistent homology summaries (β₀/β₁ lifetimes with ripser fallback)
+- Capacity loss detection via singular-value collapse statistics
+- CLI dashboard surfaces combined topology/capacity signals
+
+#### CP Dilation (`helix/cp_dilation:v0`)
+Specialized environment for completely positive map analysis:
+- Unital and coisometry error tracking
+- Choi matrix eigenvalue analysis
+- Stinespring dilation rank estimation
+- Channel capacity approximation
+
+#### Ulam Flow (`helix/ulam_flow:v0`)
+Flow dynamics analysis via Ulam discretization:
+- Perron-Frobenius operator spectral gaps
+- Mixing time estimation
+- Jacobian determinant statistics
+- Ergodicity measures
+
 ### Environment arguments
 
 | Arg | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
 | `samples` | int | 2000 | Synthetic dataset size when no features are provided |
-| `noise` | float | 0.08 | Noise level for the two-moons generator |
+| `noise` | float | 0.08 | Noise level for dataset generation |
 | `seed` | int | 1 | RNG seed for data and training |
 | `width` | int | 16 | Hidden width for the demo MLP |
 | `epochs` | int | 60 | Demo training epochs |
+| `dataset_type` | str | `moons` | Dataset type: `moons`, `swiss_roll`, `circles`, `xor`, `s_curve` |
+| `dataset_kwargs` | dict | `{}` | Additional dataset-specific parameters (e.g., `{"hole": true}`) |
 | `mass_weight` | float | 1.0 | Reward weight for mass-consistency error |
 | `wasted_weight` | float | 0.1 | Reward weight for wasted regions |
 | `max_depth` | int | 0 | Depth cap (0 means use all levels) |
@@ -84,4 +147,15 @@ to analyse custom networks.
 - The Verifiers loader emits multiple-choice prompts with deterministic scoring, so the API key is
   optional today. Future rubric extensions (LLM-based diagnostics, narrative rationales) will reuse
   the same key handling, keeping parity with `bixbench` and `hle`.
-- See `helix-env-idea.md` for the broader roadmap covering CP/Ulam/equivariance environments.
+- Multiple dataset types provide diverse testing scenarios for operator-algebraic diagnostics,
+  from basic 2D classification to complex 3D manifold learning challenges.
+
+### Future Roadmap
+Planned enhancements include:
+- **Persistent Homology Trajectories**: Track barcodes across training checkpoints
+- **K-Theory Environment**: Bratteli diagram analysis and K₀/K₁ invariant computation
+- **Equivariance Testing**: Group symmetry violation detection and monitoring
+- **Visualization Dashboard (GUI)**: Live Bratteli diagrams and PF spectra beyond the CLI cards
+- **Multi-architecture Support**: Vision transformers, CNNs, and graph neural networks
+
+See `helix-env-idea.md` for detailed implementation plans.

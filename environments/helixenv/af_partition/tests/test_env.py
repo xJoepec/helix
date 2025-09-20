@@ -83,3 +83,112 @@ def test_llm_judge_requires_api_key(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError):
         load_verifiers_environment(enable_llm_judge=True)
+
+
+def test_swiss_roll_dataset() -> None:
+    """Test Swiss Roll dataset generation."""
+    from environments.helixenv.af_partition.dataset import _make_swiss_roll
+
+    X, y = _make_swiss_roll(100, 0.1, 42)
+    assert X.shape == (100, 3)  # Swiss roll is 3D
+    assert y.shape == (100,)
+    assert len(np.unique(y)) == 2  # Binary classification
+    assert X.dtype == np.float32
+
+
+def test_swiss_roll_with_hole() -> None:
+    """Test Swiss Roll with hole variant."""
+    from environments.helixenv.af_partition.dataset import _make_swiss_roll
+
+    X, y = _make_swiss_roll(100, 0.1, 42, hole=True)
+    assert X.shape[1] == 3  # Still 3D
+    assert X.shape[0] <= 100  # Fewer points due to hole removal
+    assert y.shape[0] == X.shape[0]
+
+
+def test_concentric_circles_dataset() -> None:
+    """Test concentric circles dataset generation."""
+    from environments.helixenv.af_partition.dataset import _make_concentric_circles
+
+    X, y = _make_concentric_circles(100, 0.05, 42)
+    assert X.shape == (100, 2)  # 2D circles
+    assert y.shape == (100,)
+    assert len(np.unique(y)) == 2  # Binary classification
+    assert X.dtype == np.float32
+
+
+def test_xor_dataset() -> None:
+    """Test XOR dataset generation."""
+    from environments.helixenv.af_partition.dataset import _make_xor
+
+    X, y = _make_xor(100, 0.1, 42)
+    assert X.shape == (100, 2)  # 2D XOR
+    assert y.shape == (100,)
+    assert len(np.unique(y)) == 2  # Binary classification
+    assert X.dtype == np.float32
+
+
+def test_s_curve_dataset() -> None:
+    """Test S-curve dataset generation."""
+    from environments.helixenv.af_partition.dataset import _make_s_curve
+
+    X, y = _make_s_curve(100, 0.1, 42)
+    assert X.shape == (100, 3)  # S-curve is 3D
+    assert y.shape == (100,)
+    assert len(np.unique(y)) == 2  # Binary classification
+    assert X.dtype == np.float32
+
+
+def test_new_scenario_spec_attributes() -> None:
+    """Test ScenarioSpec with new attributes."""
+    from environments.helixenv.af_partition.dataset import ScenarioSpec
+
+    spec = ScenarioSpec(
+        seed=42,
+        dataset_type="swiss_roll",
+        dataset_kwargs={"hole": True}
+    )
+    assert spec.dataset_type == "swiss_roll"
+    assert spec.dataset_kwargs == {"hole": True}
+
+
+def test_environment_with_different_datasets() -> None:
+    """Test environment works with different dataset types."""
+    from environments.helixenv.af_partition.dataset import ScenarioSpec, _scenario_from_spec
+
+    # Test each dataset type
+    dataset_types = ["moons", "swiss_roll", "circles", "xor", "s_curve"]
+
+    for dataset_type in dataset_types:
+        spec = ScenarioSpec(
+            seed=42,
+            samples=64,
+            noise=0.1,
+            width=8,
+            epochs=5,
+            dataset_type=dataset_type
+        )
+
+        example, label = _scenario_from_spec(spec, 0, seed_offset=0)
+
+        assert isinstance(example, dict)
+        assert "question" in example
+        assert "answer" in example
+        assert label in {"A", "B", "C"}
+
+
+def test_environment_adapts_to_input_dimension() -> None:
+    """Test that model input dimension adapts to dataset dimension."""
+    from environments.helixenv.af_partition.dataset import ScenarioSpec, _scenario_from_spec
+
+    # 2D dataset (moons)
+    spec_2d = ScenarioSpec(seed=42, samples=64, dataset_type="moons", epochs=5)
+    example_2d, _ = _scenario_from_spec(spec_2d, 0, seed_offset=0)
+
+    # 3D dataset (swiss_roll)
+    spec_3d = ScenarioSpec(seed=42, samples=64, dataset_type="swiss_roll", epochs=5)
+    example_3d, _ = _scenario_from_spec(spec_3d, 0, seed_offset=0)
+
+    # Both should succeed despite different input dimensions
+    assert "question" in example_2d
+    assert "question" in example_3d

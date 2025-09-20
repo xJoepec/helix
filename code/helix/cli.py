@@ -32,7 +32,11 @@ except Exception as _e:  # pragma: no cover
     F = None
 
 from helix import (
+    CapacityLossMetrics,
+    PersistentHomologySummary,
     build_V_from_incidence,
+    compute_capacity_loss,
+    compute_persistent_homology,
     extract_partitions,
     mass_consistency_errors,
     region_counts,
@@ -284,6 +288,18 @@ def _build_helix_env_parser(prog: str = "helix helixenv") -> argparse.ArgumentPa
         action="store_true",
         help="Skip detailed module/layer breakdown for the loaded model",
     )
+
+    security_group = parser.add_argument_group("Security")
+    security_group.add_argument(
+        "--allow-pickled-arrays",
+        action="store_true",
+        help="Permit loading .npy/.npz files that require pickle (disabled by default)",
+    )
+    security_group.add_argument(
+        "--allow-pickled-weights",
+        action="store_true",
+        help="Permit torch.load of pickled checkpoints when you trust the source",
+    )
     return parser
 
 
@@ -306,6 +322,40 @@ def _style(text: str, *, color: Optional[str] = None, bold: bool = False) -> str
         return text
     prefix = "\033[" + ";".join(codes) + "m"
     return f"{prefix}{text}\033[0m"
+
+
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_flag(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _load_state_dict(path: str, *, allow_pickled: bool = False):
+    if torch is None:
+        raise RuntimeError("PyTorch is not available; cannot load weights.")
+
+    load_kwargs = {"map_location": "cpu"}
+    if not allow_pickled:
+        try:
+            return torch.load(path, weights_only=True, **load_kwargs)
+        except TypeError as exc:
+            raise RuntimeError(
+                "Safe checkpoint loading requires torch>=2.0. "
+                "Upgrade PyTorch or rerun with --allow-pickled-weights (or HELIX_ALLOW_PICKLED_WEIGHTS=1) if you trust the checkpoint."
+            ) from exc
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if "weights_only" in message or "state_dict" in message:
+                raise RuntimeError(
+                    "Checkpoint does not expose a plain state_dict. "
+                    "Rerun with --allow-pickled-weights or set HELIX_ALLOW_PICKLED_WEIGHTS=1 if you trust the source."
+                ) from exc
+            raise
+    return torch.load(path, **load_kwargs)
 
 
 TRIM_TOP_LINES = 4
@@ -807,6 +857,71 @@ def _render_layer_cards(
             value_str = _format_layer_metric_value(numeric_value, fmt)
             print(f"  {label:<12} {value_str:>12} |{bar}|")
 
+    print(_subtle(_divider(".")))
+
+
+def _format_betti(summary: PersistentHomologySummary) -> str:
+    return ", ".join(f"β{idx}={val}" for idx, val in enumerate(summary.betti_numbers))
+
+
+def _print_persistent_homology(summary: Optional[PersistentHomologySummary]) -> None:
+    print(_headline("Persistent Homology"))
+    if summary is None:
+        print(_subtle("No persistent homology metrics available."))
+        return
+    precision = "exact" if summary.computed else "heuristic"
+    print(
+        _format_metric(
+            "backend",
+            f"{summary.backend} ({precision})",
+            icon="[PH]",
+        )
+    )
+    print(_format_metric("betti", _format_betti(summary), icon="[PH]"))
+    lifetimes = ", ".join(
+        f"β{idx}:{summary.average_lifetimes[idx]:.3g}/{summary.max_lifetimes[idx]:.3g}"
+        for idx in range(len(summary.average_lifetimes))
+    )
+    print(_format_metric("lifetimes", lifetimes or "-", icon="[PH]"))
+    if summary.notes:
+        for note in summary.notes:
+            print(_subtle(f"  note: {note}"))
+
+
+def _format_capacity_layer_scores(metrics: CapacityLossMetrics) -> str:
+    if not metrics.layer_scores:
+        return "-"
+    items = sorted(metrics.layer_scores.items(), key=lambda kv: kv[0])
+    return ", ".join(f"{name}:{score:.2f}" for name, score in items)
+
+
+def _print_capacity_metrics(metrics: Optional[CapacityLossMetrics]) -> None:
+    print(_headline("Capacity Loss"))
+    if metrics is None:
+        print(_subtle("Capacity diagnostics unavailable."))
+        return
+    if not metrics.computed:
+        print(_subtle("Capacity metrics unavailable (" + "; ".join(metrics.notes) + ")"))
+        return
+    print(_format_metric("mean", f"{metrics.mean_loss:.3f}", icon="[CL]"))
+    print(_format_metric("max", f"{metrics.max_loss:.3f}", icon="[CL]"))
+    if metrics.layer_scores:
+        print(_format_metric("layers", _format_capacity_layer_scores(metrics), icon="[CL]"))
+    if metrics.notes:
+        for note in metrics.notes:
+            print(_subtle(f"  note: {note}"))
+
+
+def _print_cli_dashboard(
+    *,
+    persistent: Optional[PersistentHomologySummary],
+    capacity: Optional[CapacityLossMetrics],
+) -> None:
+    print(_subtle(_divider(".")))
+    print(_headline("Topology & Capacity Dashboard"))
+    _print_persistent_homology(persistent)
+    print()
+    _print_capacity_metrics(capacity)
     print(_subtle(_divider(".")))
 
 
@@ -1355,6 +1470,8 @@ def _interactive_collect_helix_args() -> argparse.Namespace:
         ask_api_key=False,
         show_config=show_config,
         no_layer_summary=not show_layers,
+        allow_pickled_arrays=False,
+        allow_pickled_weights=False,
     )
 
 
@@ -1617,21 +1734,37 @@ def _seed_torch(seed: int) -> None:
         pass
 
 
-def _load_array(path: str) -> np.ndarray:
+def _load_array(path: str, *, allow_pickle: bool = False) -> np.ndarray:
     p = str(path)
     lower = p.lower()
+
+    def _raise_pickle_hint(loader: str, exc: ValueError) -> None:
+        if not allow_pickle and "pickled" in str(exc).lower():
+            raise ValueError(
+                f"{loader} '{p}' requires pickle deserialisation. "
+                "Rerun with --allow-pickled-arrays or set HELIX_ALLOW_PICKLED_ARRAYS=1 if you trust the file."
+            ) from exc
+
     if lower.endswith(".npy"):
-        return np.load(p)
+        try:
+            return np.load(p, allow_pickle=allow_pickle)
+        except ValueError as exc:
+            _raise_pickle_hint("Array", exc)
+            raise
     if lower.endswith(".npz"):
-        npz = np.load(p)
-        # Prefer common keys
-        for k in ("X", "x", "data", "array"):
-            if k in npz:
-                return np.array(npz[k])
-        # Fallback to first array
-        for k in npz.files:
-            return np.array(npz[k])
-        raise ValueError(f"No arrays found in npz: {p}")
+        try:
+            with np.load(p, allow_pickle=allow_pickle) as npz:
+                # Prefer common keys
+                for k in ("X", "x", "data", "array"):
+                    if k in npz:
+                        return np.array(npz[k])
+                # Fallback to first array
+                for k in npz.files:
+                    return np.array(npz[k])
+                raise ValueError(f"No arrays found in npz: {p}")
+        except ValueError as exc:
+            _raise_pickle_hint("Archive", exc)
+            raise
     if lower.endswith(".csv") or lower.endswith(".txt"):
         return np.loadtxt(p, delimiter=",")
     raise ValueError(f"Unsupported array file type: {p}")
@@ -1659,6 +1792,11 @@ def run_demo(args: argparse.Namespace) -> int:
     _seed_torch(args.seed)
 
     X, y = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
+    try:
+        persistent_summary = compute_persistent_homology(X, maxdim=2)
+    except Exception as exc:
+        persistent_summary = None
+        print(_subtle(f"[warn] Persistent homology unavailable: {exc}"))
     hidden_widths = _hidden_widths_from_args(args)
     model = MLP(d_in=2, widths=hidden_widths, d_out=2)
 
@@ -1672,6 +1810,12 @@ def run_demo(args: argparse.Namespace) -> int:
             loss = F.cross_entropy(logits, y_t)
             loss.backward()
             opt.step()
+
+    try:
+        capacity_metrics = compute_capacity_loss(model)
+    except Exception as exc:
+        capacity_metrics = None
+        print(_subtle(f"[warn] Capacity metrics unavailable: {exc}"))
 
     af = extract_partitions(model, X)
     n_list = region_counts(af.B_list)
@@ -1767,6 +1911,38 @@ def run_helix_env(args: argparse.Namespace) -> int:
 
     AFPartitionEnv = _import_af_partition_env()
 
+    cli_pickled_arrays = getattr(args, "allow_pickled_arrays", False)
+    cli_pickled_weights = getattr(args, "allow_pickled_weights", False)
+    env_pickled_arrays = _env_flag("HELIX_ALLOW_PICKLED_ARRAYS")
+    env_pickled_weights = _env_flag("HELIX_ALLOW_PICKLED_WEIGHTS")
+    allow_pickled_arrays = cli_pickled_arrays or env_pickled_arrays
+    allow_pickled_weights = cli_pickled_weights or env_pickled_weights
+
+    if cli_pickled_arrays:
+        print(
+            _subtle(
+                "--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."
+            )
+        )
+    elif env_pickled_arrays:
+        print(
+            _subtle(
+                "HELIX_ALLOW_PICKLED_ARRAYS=1: numpy pickle deserialisation enabled for this run."
+            )
+        )
+    if cli_pickled_weights:
+        print(
+            _subtle(
+                "--allow-pickled-weights: pickled checkpoint loading enabled for this run."
+            )
+        )
+    elif env_pickled_weights:
+        print(
+            _subtle(
+                "HELIX_ALLOW_PICKLED_WEIGHTS=1: pickled checkpoint loading enabled for this run."
+            )
+        )
+
     api_key_var = getattr(args, "api_key_var", "OPENAI_API_KEY") or "OPENAI_API_KEY"
     api_key_source = "cli flag"
     resolved_api_key = (getattr(args, "api_key", "") or "").strip()
@@ -1824,20 +2000,28 @@ def run_helix_env(args: argparse.Namespace) -> int:
 
     _seed_torch(args.seed)
 
+    persistent_summary: Optional[PersistentHomologySummary] = None
+    capacity_metrics: Optional[CapacityLossMetrics] = None
+
     if getattr(args, "data_x", ""):
-        X = _load_array(args.data_x)
+        X = _load_array(args.data_x, allow_pickle=allow_pickled_arrays)
         if X.ndim == 1:
             X = X.reshape(-1, 1)
         X = np.asarray(X, dtype=np.float32)
         y = None
         if getattr(args, "data_y", ""):
-            y_arr = _load_array(args.data_y)
+            y_arr = _load_array(args.data_y, allow_pickle=allow_pickled_arrays)
             y_flat = np.asarray(y_arr, dtype=np.int64).reshape(-1)
             if y_flat.shape[0] != X.shape[0]:
                 raise ValueError("data_y length must match number of rows in data_x")
             y = y_flat
     else:
         X, y = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
+
+    try:
+        persistent_summary = compute_persistent_homology(X, maxdim=2)
+    except Exception as exc:
+        print(_subtle(f"[warn] Persistent homology unavailable: {exc}"))
 
     hidden_widths = _hidden_widths_from_args(args)
 
@@ -1859,7 +2043,7 @@ def run_helix_env(args: argparse.Namespace) -> int:
         model = MLP(d_in=d_in, widths=hidden_widths, d_out=args.d_out)
 
     if getattr(args, "weights", ""):
-        state = torch.load(args.weights, map_location="cpu")
+        state = _load_state_dict(args.weights, allow_pickled=allow_pickled_weights)
         try:
             model.load_state_dict(state)
         except Exception:
@@ -1876,6 +2060,11 @@ def run_helix_env(args: argparse.Namespace) -> int:
             loss.backward()
             opt.step()
 
+    try:
+        capacity_metrics = compute_capacity_loss(model)
+    except Exception as exc:
+        print(_subtle(f"[warn] Capacity metrics unavailable: {exc}"))
+
     max_depth = args.max_depth if getattr(args, "max_depth", 0) and args.max_depth > 0 else None
     env = AFPartitionEnv(
         model,
@@ -1887,6 +2076,11 @@ def run_helix_env(args: argparse.Namespace) -> int:
         cp_weight=args.cp_weight,
         gap_weight=args.gap_weight,
     )
+
+    if persistent_summary is not None:
+        env.update_persistent_homology(persistent_summary)
+    if capacity_metrics is not None:
+        env.update_capacity_metrics(capacity_metrics)
 
     computed_gap: Optional[float] = None
     if not getattr(args, "no_ulam", False):
@@ -2039,6 +2233,8 @@ def run_helix_env(args: argparse.Namespace) -> int:
     _print_af_summary(rows, computed_gap=computed_gap)
     _render_summary_plots(rows)
 
+    _print_cli_dashboard(persistent=persistent_summary, capacity=capacity_metrics)
+
     print(_subtle(_divider("-")))
     print(
         _format_metric(
@@ -2061,20 +2257,58 @@ def run_helix_env(args: argparse.Namespace) -> int:
 def run_analyze(args: argparse.Namespace) -> int:
     if torch is None:
         raise RuntimeError("PyTorch required. pip install torch")
+    cli_pickled_arrays = getattr(args, "allow_pickled_arrays", False)
+    cli_pickled_weights = getattr(args, "allow_pickled_weights", False)
+    env_pickled_arrays = _env_flag("HELIX_ALLOW_PICKLED_ARRAYS")
+    env_pickled_weights = _env_flag("HELIX_ALLOW_PICKLED_WEIGHTS")
+    allow_pickled_arrays = cli_pickled_arrays or env_pickled_arrays
+    allow_pickled_weights = cli_pickled_weights or env_pickled_weights
+    if cli_pickled_arrays:
+        print(
+            _subtle(
+                "--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."
+            )
+        )
+    elif env_pickled_arrays:
+        print(
+            _subtle(
+                "HELIX_ALLOW_PICKLED_ARRAYS=1: numpy pickle deserialisation enabled for this run."
+            )
+        )
+    if cli_pickled_weights:
+        print(
+            _subtle(
+                "--allow-pickled-weights: pickled checkpoint loading enabled for this run."
+            )
+        )
+    elif env_pickled_weights:
+        print(
+            _subtle(
+                "HELIX_ALLOW_PICKLED_WEIGHTS=1: pickled checkpoint loading enabled for this run."
+            )
+        )
     _seed_torch(args.seed)
+
+    persistent_summary: Optional[PersistentHomologySummary] = None
+    capacity_metrics: Optional[CapacityLossMetrics] = None
 
     # Load data or synthesize
     if args.data_x:
-        X = _load_array(args.data_x)
+        X = _load_array(args.data_x, allow_pickle=allow_pickled_arrays)
         if X.ndim == 1:
             X = X.reshape(-1, 1)
         X = X.astype(np.float32)
     else:
         X, _ = make_moons(n=args.samples, noise=args.noise, seed=args.seed)
 
+    try:
+        persistent_summary = compute_persistent_homology(X, maxdim=2)
+    except Exception as exc:
+        print(_subtle(f"[warn] Persistent homology unavailable: {exc}"))
+
     y = None
     if args.data_y:
-        y_arr = _load_array(args.data_y)
+        y_arr = _load_array(args.data_y, allow_pickle=allow_pickled_arrays)
         y = y_arr.astype(np.int64).reshape(-1)
         if y.shape[0] != X.shape[0]:
             raise ValueError("data_y length must match number of rows in data_x")
@@ -2101,7 +2335,7 @@ def run_analyze(args: argparse.Namespace) -> int:
 
     # Optional weights
     if args.weights:
-        state = torch.load(args.weights, map_location="cpu")
+        state = _load_state_dict(args.weights, allow_pickled=allow_pickled_weights)
         try:
             model.load_state_dict(state)
         except Exception:
@@ -2122,6 +2356,11 @@ def run_analyze(args: argparse.Namespace) -> int:
                 opt.step()
         except Exception as e:
             print(f"[warn] Training skipped due to error: {e}")
+
+    try:
+        capacity_metrics = compute_capacity_loss(model)
+    except Exception as exc:
+        print(_subtle(f"[warn] Capacity metrics unavailable: {exc}"))
 
     # Metrics
     af = extract_partitions(model, X)
@@ -2201,6 +2440,8 @@ def run_analyze(args: argparse.Namespace) -> int:
     if gap is not None:
         print(_headline("Ulam Transfer"))
         print(_format_metric("spectral gap", f"{gap:.4f}", icon="[U]"))
+
+    _print_cli_dashboard(persistent=persistent_summary, capacity=capacity_metrics)
     return 0
 
 
@@ -2260,6 +2501,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         pz.add_argument("--ulam-samples-per-cell", type=int, default=1)
         pz.add_argument("--no-ulam", action="store_true")
         pz.add_argument("--seed", type=int, default=1)
+        pz.add_argument(
+            "--allow-pickled-arrays",
+            action="store_true",
+            help="Permit loading .npy/.npz files that require pickle (disabled by default)",
+        )
+        pz.add_argument(
+            "--allow-pickled-weights",
+            action="store_true",
+            help="Permit torch.load of pickled checkpoints when you trust the source",
+        )
         az = pz.parse_args(argv[1:])
         return run_analyze(az)
 
