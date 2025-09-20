@@ -19,6 +19,8 @@ from .diagnostics import (
     mass_consistency_errors,
     region_counts,
 )
+from .topology import compute_persistent_homology, PersistentHomologySummary
+from .capacity import compute_capacity_loss, CapacityLossMetrics
 from .env_api import (
     AFLevelMetrics,
     AFMetrics,
@@ -70,4 +72,10 @@ __all__ = [
     "AFMetrics",
     "af_feature_vector",
     "extract_af_metrics",
+    # topology
+    "compute_persistent_homology",
+    "PersistentHomologySummary",
+    # capacity
+    "compute_capacity_loss",
+    "CapacityLossMetrics",
 ]

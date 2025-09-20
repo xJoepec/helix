@@ -29,15 +29,39 @@ class ScenarioSpec:
     epochs: int = 60
     train: bool = True
     description: str = ""
+    dataset_type: str = "moons"  # moons, swiss_roll, circles, xor, s_curve
+    dataset_kwargs: dict = None  # Additional dataset-specific parameters
+
+    def __post_init__(self):
+        if self.dataset_kwargs is None:
+            object.__setattr__(self, 'dataset_kwargs', {})
 
 
 DEFAULT_SCENARIOS: Sequence[ScenarioSpec] = (
-    ScenarioSpec(seed=11, samples=512, noise=0.08, width=8, epochs=40, train=True, description="balanced moderate capacity"),
-    ScenarioSpec(seed=21, samples=512, noise=0.02, width=48, epochs=140, train=True, description="very wide network"),
-    ScenarioSpec(seed=31, samples=512, noise=0.10, width=4, epochs=30, train=True, description="narrow architecture"),
-    ScenarioSpec(seed=41, samples=640, noise=0.07, width=12, epochs=80, train=True, description="well trained baseline"),
-    ScenarioSpec(seed=51, samples=512, noise=0.03, width=32, epochs=120, train=True, description="high expressivity"),
-    ScenarioSpec(seed=61, samples=384, noise=0.20, width=5, epochs=0, train=False, description="untrained noisy model"),
+    # Two moons (traditional)
+    ScenarioSpec(seed=11, samples=512, noise=0.08, width=8, epochs=40, train=True,
+                dataset_type="moons", description="balanced moderate capacity (moons)"),
+
+    # Swiss Roll (manifold learning)
+    ScenarioSpec(seed=21, samples=512, noise=0.02, width=48, epochs=140, train=True,
+                dataset_type="swiss_roll", description="very wide network (swiss roll)"),
+
+    # Concentric circles (radial structure)
+    ScenarioSpec(seed=31, samples=512, noise=0.10, width=12, epochs=30, train=True,
+                dataset_type="circles", description="narrow architecture (circles)"),
+
+    # XOR (non-linear separability)
+    ScenarioSpec(seed=41, samples=640, noise=0.07, width=16, epochs=80, train=True,
+                dataset_type="xor", description="well trained baseline (xor)"),
+
+    # S-curve (smooth manifold)
+    ScenarioSpec(seed=51, samples=512, noise=0.03, width=32, epochs=120, train=True,
+                dataset_type="s_curve", description="high expressivity (s-curve)"),
+
+    # Swiss Roll with hole (topological complexity)
+    ScenarioSpec(seed=61, samples=384, noise=0.20, width=5, epochs=0, train=False,
+                dataset_type="swiss_roll", dataset_kwargs={"hole": True},
+                description="untrained noisy model (swiss roll hole)"),
 )
 
 
@@ -84,8 +108,24 @@ def _scenario_from_spec(spec: ScenarioSpec, index: int, *, seed_offset: int) -> 
     torch.manual_seed(spec.seed + seed_offset)
     np.random.seed(spec.seed + seed_offset)
 
-    X, y = _make_moons(spec.samples, spec.noise, spec.seed + seed_offset)
-    model = _build_mlp(d_in=2, width=spec.width, d_out=2)
+    # Generate dataset based on type
+    dataset_kwargs = spec.dataset_kwargs or {}
+    if spec.dataset_type == "moons":
+        X, y = _make_moons(spec.samples, spec.noise, spec.seed + seed_offset)
+    elif spec.dataset_type == "swiss_roll":
+        X, y = _make_swiss_roll(spec.samples, spec.noise, spec.seed + seed_offset, **dataset_kwargs)
+    elif spec.dataset_type == "circles":
+        X, y = _make_concentric_circles(spec.samples, spec.noise, spec.seed + seed_offset, **dataset_kwargs)
+    elif spec.dataset_type == "xor":
+        X, y = _make_xor(spec.samples, spec.noise, spec.seed + seed_offset)
+    elif spec.dataset_type == "s_curve":
+        X, y = _make_s_curve(spec.samples, spec.noise, spec.seed + seed_offset)
+    else:
+        raise ValueError(f"Unknown dataset type: {spec.dataset_type}")
+
+    # Determine input dimension and build model
+    d_in = X.shape[1]
+    model = _build_mlp(d_in=d_in, width=spec.width, d_out=2)
 
     if spec.train and spec.epochs > 0 and y is not None:
         _train_model(model, X, y, epochs=spec.epochs)
@@ -131,6 +171,117 @@ def _make_moons(n: int, noise: float, seed: int) -> tuple[np.ndarray, np.ndarray
     X = np.vstack([x1, x2]).astype(np.float32)
     X += noise * rng.standard_normal(X.shape).astype(np.float32)
     y = np.r_[np.zeros(n // 2, dtype=np.int64), np.ones(n // 2, dtype=np.int64)]
+    return X, y
+
+
+def _make_swiss_roll(n: int, noise: float, seed: int, *, hole: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """Generate Swiss Roll dataset for manifold learning diagnostics."""
+    rng = np.random.default_rng(seed)
+
+    # Generate the fundamental 2D parameterization
+    t = 1.5 * math.pi * (1 + 2 * rng.random(n))
+    height = 21 * rng.random(n)
+
+    # Create 3D Swiss Roll
+    X = np.zeros((n, 3), dtype=np.float32)
+    X[:, 0] = t * np.cos(t)
+    X[:, 1] = height
+    X[:, 2] = t * np.sin(t)
+
+    # Add noise
+    X += noise * rng.standard_normal(X.shape).astype(np.float32)
+
+    # For hole variant, remove center region
+    if hole:
+        distances = np.sqrt(X[:, 0]**2 + X[:, 2]**2)
+        valid_mask = (distances < 5) | (distances > 8)
+        X = X[valid_mask]
+        t = t[valid_mask]
+
+    # Color based on angle parameter for 2-class problem
+    y = (t > 3 * math.pi).astype(np.int64)
+
+    # Ensure we have both classes
+    if len(np.unique(y)) < 2:
+        y[::2] = 0
+        y[1::2] = 1
+
+    return X, y
+
+
+def _make_concentric_circles(n: int, noise: float, seed: int, *, factor: float = 0.8) -> tuple[np.ndarray, np.ndarray]:
+    """Generate concentric circles dataset."""
+    rng = np.random.default_rng(seed)
+
+    # Outer circle
+    n_outer = n // 2
+    theta_outer = 2 * math.pi * rng.random(n_outer)
+    outer_X = np.c_[np.cos(theta_outer), np.sin(theta_outer)]
+
+    # Inner circle
+    n_inner = n - n_outer
+    theta_inner = 2 * math.pi * rng.random(n_inner)
+    inner_X = factor * np.c_[np.cos(theta_inner), np.sin(theta_inner)]
+
+    X = np.vstack([outer_X, inner_X]).astype(np.float32)
+    X += noise * rng.standard_normal(X.shape).astype(np.float32)
+
+    y = np.r_[np.zeros(n_outer, dtype=np.int64), np.ones(n_inner, dtype=np.int64)]
+    return X, y
+
+
+def _make_xor(n: int, noise: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Generate XOR dataset for non-linear separability testing."""
+    rng = np.random.default_rng(seed)
+
+    # Create four clusters in XOR pattern
+    n_per_cluster = n // 4
+
+    # Bottom-left cluster (label 0)
+    X1 = rng.normal([-1, -1], 0.5, (n_per_cluster, 2))
+    y1 = np.zeros(n_per_cluster, dtype=np.int64)
+
+    # Top-right cluster (label 0)
+    X2 = rng.normal([1, 1], 0.5, (n_per_cluster, 2))
+    y2 = np.zeros(n_per_cluster, dtype=np.int64)
+
+    # Top-left cluster (label 1)
+    X3 = rng.normal([-1, 1], 0.5, (n_per_cluster, 2))
+    y3 = np.ones(n_per_cluster, dtype=np.int64)
+
+    # Bottom-right cluster (label 1)
+    n_remaining = n - 3 * n_per_cluster
+    X4 = rng.normal([1, -1], 0.5, (n_remaining, 2))
+    y4 = np.ones(n_remaining, dtype=np.int64)
+
+    X = np.vstack([X1, X2, X3, X4]).astype(np.float32)
+    y = np.r_[y1, y2, y3, y4]
+
+    # Add additional noise
+    X += noise * rng.standard_normal(X.shape).astype(np.float32)
+
+    return X, y
+
+
+def _make_s_curve(n: int, noise: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Generate S-curve dataset for manifold learning."""
+    rng = np.random.default_rng(seed)
+
+    # Generate parameter
+    t = 3 * math.pi * (rng.random(n) - 0.5)
+
+    # Create S-curve in 3D
+    X = np.zeros((n, 3), dtype=np.float32)
+    X[:, 0] = np.sin(t)
+    X[:, 1] = 2.0 * rng.random(n)
+    X[:, 2] = np.sign(t) * (np.cos(t) - 1)
+
+    # Add noise
+    X += noise * rng.standard_normal(X.shape).astype(np.float32)
+
+    # Binary classification based on parameter
+    y = (t > 0).astype(np.int64)
+
     return X, y
 
 
@@ -225,7 +376,8 @@ def _format_prompt(
     lines.append(f"Scenario {index + 1}: Helix AF diagnostics")
     lines.append(
         "Model setup: "
-        f"samples={spec.samples}, noise={spec.noise:.3f}, width={spec.width}, epochs={spec.epochs}, "
+        f"dataset={spec.dataset_type}, samples={spec.samples}, noise={spec.noise:.3f}, "
+        f"width={spec.width}, epochs={spec.epochs}, "
         f"trained={'yes' if spec.train and spec.epochs > 0 else 'no'}, seed={spec.seed}."
     )
     if spec.description:
