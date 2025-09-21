@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .sparse_ops import stable_mass_computation
+
 try:
     import torch
     import torch.nn as nn
@@ -112,7 +114,8 @@ def extract_partitions(
         cell_of = np.empty(N, dtype=np.int32)
         for j, idxs in enumerate(cells):
             cell_of[idxs] = j
-        tau = np.array([w[idxs].sum() for idxs in cells], dtype=np.float64)
+        # Use numerically stable mass computation to ensure conservation to machine precision
+        tau = stable_mass_computation(cells, w)
         tau_list.append(tau)
         n_list.append(len(cells))
 

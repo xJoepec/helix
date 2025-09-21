@@ -2445,6 +2445,144 @@ def run_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_ktheory_analysis(argv: List[str]) -> int:
+    """Run K-theory analysis of a neural network."""
+    parser = argparse.ArgumentParser(description="Helix K-theory analysis")
+
+    # Model specification
+    parser.add_argument("--model-module", type=str, default="",
+                       help="Path to Python file that defines a model builder")
+    parser.add_argument("--model-func", type=str, default="build_model",
+                       help="Builder function name in the module")
+    parser.add_argument("--weights", type=str, default="",
+                       help="Optional path to a state_dict .pt/.pth file")
+
+    # Data specification
+    parser.add_argument("--data-x", type=str, required=True,
+                       help="Path to features array (.npy/.npz/.csv)")
+    parser.add_argument("--width", type=int, default=16,
+                       help="Hidden width for built-in MLP if used")
+
+    # K-theory options
+    parser.add_argument("--method", type=str, default="hodge",
+                       choices=["hodge", "smith", "spectral"],
+                       help="K-theory computation method")
+    parser.add_argument("--tolerance", type=float, default=1e-10,
+                       help="Numerical tolerance for computation")
+    parser.add_argument("--max-depth", type=int, default=None,
+                       help="Maximum AF partition depth to analyze")
+
+    # Output options
+    parser.add_argument("--save-report", type=str, default="",
+                       help="Save detailed report to JSON file")
+    parser.add_argument("--plot", action="store_true",
+                       help="Generate plots of K-theory evolution")
+
+    args = parser.parse_args(argv)
+
+    try:
+        # Load data
+        X = _load_array_from_path(args.data_x)
+        print(f"Loaded data: {X.shape}")
+
+        # Load or build model
+        if args.model_module:
+            model = _load_model_from_module(args.model_module, args.model_func, {})
+        else:
+            # Use default MLP
+            import torch.nn as nn
+            model = nn.Sequential(
+                nn.Linear(X.shape[1], args.width),
+                nn.ReLU(),
+                nn.Linear(args.width, args.width),
+                nn.ReLU(),
+                nn.Linear(args.width, 2)
+            )
+
+        if args.weights:
+            import torch
+            model.load_state_dict(torch.load(args.weights))
+
+        print(f"Model: {model}")
+
+        # Run K-theory analysis
+        _ensure_repo_root_on_path()
+        from environments.ktheory.env import load_k_theory_environment
+
+        # Create K-theory environment
+        env = load_k_theory_environment(
+            model, X,
+            max_depth=args.max_depth,
+            tolerance=args.tolerance
+        )
+
+        print("\n" + "="*60)
+        print("K-THEORY ANALYSIS RESULTS")
+        print("="*60)
+
+        # Run analysis
+        obs = env.reset()
+        step_count = 0
+
+        while step_count < env._max_steps:
+            step_result = env.step({"type": "advance"})
+
+            if step_result.done:
+                break
+
+            # Print current analysis
+            k_analysis = step_result.info.get("k_theory_analysis", {})
+            if k_analysis:
+                depth = k_analysis.get("depth", step_count + 1)
+                print(f"\nDepth {depth}:")
+                print(f"  Rank: {k_analysis.get('rank', 'N/A')}")
+                print(f"  Nullity: {k_analysis.get('nullity', 'N/A')}")
+                print(f"  Torsion orders: {k_analysis.get('torsion_orders', [])}")
+                print(f"  Spectral gap: {k_analysis.get('spectral_gap', 'N/A'):.4f}")
+
+                physics_interp = step_result.info.get("physics_interpretation", {})
+                if physics_interp:
+                    print(f"  Topology: {physics_interp.get('topology', 'N/A')}")
+                    print(f"  Regime: {physics_interp.get('regime', 'N/A')}")
+
+            step_count += 1
+
+        # Print summary
+        persistence_summary = env.get_persistence_summary()
+        if persistence_summary:
+            print("\nPersistent K-theory Summary:")
+            for key, value in persistence_summary.items():
+                if isinstance(value, (int, float)):
+                    print(f"  {key}: {value}")
+                elif isinstance(value, str):
+                    print(f"  {key}: {value}")
+
+        # Save report if requested
+        if args.save_report:
+            import json
+            report = {
+                "analysis_history": env.get_history(),
+                "persistence_summary": persistence_summary,
+                "configuration": {
+                    "method": args.method,
+                    "tolerance": args.tolerance,
+                    "max_depth": args.max_depth
+                }
+            }
+
+            with open(args.save_report, 'w') as f:
+                json.dump(report, f, indent=2, default=str)
+            print(f"\nReport saved to: {args.save_report}")
+
+        return 0
+
+    except Exception as e:
+        print(f"Error in K-theory analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     # If no arguments provided, run interactive mode
     if argv is None or len(argv) == 0:
@@ -2461,6 +2599,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
         return run_tui(argv[1:])
+
+    # New: K-theory analysis subcommand
+    if argv and len(argv) > 0 and argv[0] == "ktheory":
+        return run_ktheory_analysis(argv[1:])
+
     # New: custom analysis subcommand
     if argv and len(argv) > 0 and argv[0] == "analyze":
         pz = argparse.ArgumentParser(description="Helix CLI: analyze a custom model/dataset")

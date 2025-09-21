@@ -44,3 +44,37 @@ Flags (analyze)
 - `--data-y`: Optional labels for training (if desired).
 - `--no-train`, `--epochs`: Training control (only if labels provided).
 - `--ulam-bins`, `--ulam-samples-per-cell`, `--no-ulam`: Ulam settings.
+
+## K-theory Analysis
+
+Analyze K-theory invariants and algebraic topology of AF partitions:
+
+```
+# Run K-theory analysis with different environments and configurations
+./helix ktheory --env helixenv --samples 1024 --noise 0.05 --width 24
+./helix ktheory --env custom --model-path model.pth --data-path data.npy
+
+# Advanced K-theory options
+./helix ktheory --method hodge --tolerance 1e-8 --show-progress
+./helix ktheory --output-file ktheory_results.json --verbose
+```
+
+### K-theory Flags
+
+- `--env`: Environment type (`helixenv`, `custom`)
+- `--method`: Computation method (`smith` for Smith normal form, `hodge` for Hodge decomposition)
+- `--tolerance`: Numerical tolerance for Hodge method (default: 1e-10)
+- `--show-progress`: Display progress bars during computation
+- `--output-file`: Save results to JSON file
+- `--verbose`: Show detailed diagnostic information
+
+### K-theory Output
+
+The K-theory analysis provides:
+- **Betti numbers**: Topological invariants (rank of homology groups)
+- **Torsion coefficients**: Finite order elements in K-groups
+- **Smith normal form**: Canonical matrix decomposition
+- **Harmonic eigenvalues**: Spectral information from Hodge Laplacian
+- **K₀/K₁ invariants**: Algebraic K-theory groups
+
+This is useful for understanding the topological complexity and algebraic structure of neural network partitions.
