@@ -18,6 +18,35 @@ except Exception:  # pragma: no cover
     pdist = None  # type: ignore[assignment]
     squareform = None  # type: ignore[assignment]
 
+try:  # pragma: no cover - optional progress bar
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    # Fallback progress bar implementation
+    class tqdm:  # type: ignore[misc]
+        def __init__(self, iterable=None, desc=None, total=None, **kwargs):
+            self.iterable = iterable
+            self.desc = desc or ""
+            self.total = total
+            self.n = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def __iter__(self):
+            if self.iterable is not None:
+                for item in self.iterable:
+                    yield item
+                    self.update(1)
+
+        def update(self, n=1):
+            self.n += n
+
+        def set_description(self, desc):
+            self.desc = desc
+
 
 @dataclass(frozen=True)
 class PersistentHomologySummary:
@@ -44,6 +73,7 @@ def compute_persistent_homology(
     *,
     maxdim: int = 2,
     sample_cap: int = 1024,
+    show_progress: bool = False,
 ) -> PersistentHomologySummary:
     """Compute persistent homology summary for the provided point cloud.
 
@@ -56,6 +86,8 @@ def compute_persistent_homology(
     sample_cap:
         Randomly sub-sample the cloud when more than ``sample_cap`` points are
         provided to keep complexity manageable.
+    show_progress:
+        Whether to display progress bar during computation (default: ``False``).
     """
 
     array = np.asarray(points, dtype=np.float64)
@@ -63,20 +95,45 @@ def compute_persistent_homology(
         raise ValueError("points must have shape (n, d) with n > 0")
 
     n_points = array.shape[0]
-    if n_points > sample_cap:
+
+    # Progress bar for sampling phase
+    if show_progress and n_points > sample_cap:
+        with tqdm(total=3, desc="PH: Sampling points") as pbar:
+            pbar.update(1)
+            rng = np.random.default_rng(0)
+            pbar.update(1)
+            idx = rng.choice(n_points, size=sample_cap, replace=False)
+            pbar.update(1)
+            array = array[idx]
+    elif n_points > sample_cap:
         rng = np.random.default_rng(0)
         idx = rng.choice(n_points, size=sample_cap, replace=False)
         array = array[idx]
 
     backend_notes: list[str] = []
     if ripser is not None:
-        result = ripser(array, maxdim=maxdim)
+        # Progress bar for main computation
+        if show_progress:
+            with tqdm(total=1, desc="PH: Computing persistence diagrams") as pbar:
+                result = ripser(array, maxdim=maxdim)
+                pbar.update(1)
+        else:
+            result = ripser(array, maxdim=maxdim)
+
         diagrams: Iterable[np.ndarray] = result.get("dgms", [])
         betti: list[int] = []
         avg_life: list[float] = []
         max_life: list[float] = []
         finite_counts: list[int] = []
-        for diagram in diagrams:
+
+        # Progress bar for diagram processing
+        diagrams_list = list(diagrams)
+        if show_progress:
+            diagrams_iter = tqdm(diagrams_list, desc="PH: Processing diagrams")
+        else:
+            diagrams_iter = diagrams_list
+
+        for diagram in diagrams_iter:
             clean = _clean_diagram(np.asarray(diagram))
             finite_counts.append(int(clean.shape[0]))
             betti.append(int(clean.shape[0]))
@@ -115,7 +172,16 @@ def compute_persistent_homology(
             notes=tuple(backend_notes),
         )
 
-    distances = squareform(pdist(array))
+    # Progress bar for distance computation in fallback mode
+    if show_progress:
+        with tqdm(total=2, desc="PH: Computing distance matrix") as pbar:
+            dist_condensed = pdist(array)
+            pbar.update(1)
+            distances = squareform(dist_condensed)
+            pbar.update(1)
+    else:
+        distances = squareform(pdist(array))
+
     if distances.shape[0] <= 1:
         return PersistentHomologySummary(
             betti_numbers=(1,),

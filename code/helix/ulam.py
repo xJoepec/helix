@@ -4,6 +4,35 @@ from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
+try:  # pragma: no cover - optional progress bar
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    # Fallback progress bar implementation
+    class tqdm:  # type: ignore[misc]
+        def __init__(self, iterable=None, desc=None, total=None, **kwargs):
+            self.iterable = iterable
+            self.desc = desc or ""
+            self.total = total
+            self.n = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def __iter__(self):
+            if self.iterable is not None:
+                for item in self.iterable:
+                    yield item
+                    self.update(1)
+
+        def update(self, n=1):
+            self.n += n
+
+        def set_description(self, desc):
+            self.desc = desc
+
 
 def ulam_pf(
     F: Callable[[np.ndarray], np.ndarray],
@@ -12,6 +41,7 @@ def ulam_pf(
     *,
     samples_per_cell: int = 1,
     rng: Optional[np.random.Generator] = None,
+    show_progress: bool = False,
 ) -> Tuple[np.ndarray, List[np.ndarray]]:
     """Ulam–Perron–Frobenius discretization with barycentric mass splitting.
 
@@ -88,7 +118,13 @@ def ulam_pf(
             tgt = int((idx * multipliers).sum())
             P[row, tgt] += w
 
-    for y, row in zip(Y, src_rows):
+    # Progress bar for sample processing
+    if show_progress:
+        sample_iter = tqdm(zip(Y, src_rows), total=len(Y), desc="Ulam: Processing samples")
+    else:
+        sample_iter = zip(Y, src_rows)
+
+    for y, row in sample_iter:
         deposit_point(y, int(row))
 
     # Normalize rows (account for numeric drift and multi-sampling)
@@ -103,10 +139,23 @@ def ulam_pf(
     return P, centers_axes
 
 
-def spectral_gap(P: np.ndarray, k: int = 5) -> float:
+def spectral_gap(P: np.ndarray, k: int = 5, show_progress: bool = False) -> float:
     """Return 1 - |λ2(P)| (magnitude of second-largest eigenvalue of P^T)."""
-    eigs = np.linalg.eigvals(P.T)
-    eigs = np.sort(np.abs(eigs))[::-1]
-    if eigs.size < 2:
-        return 0.0
-    return float(1.0 - eigs[1])
+    if show_progress:
+        with tqdm(total=3, desc="Spectral gap: Computing eigenvalues") as pbar:
+            eigs = np.linalg.eigvals(P.T)
+            pbar.update(1)
+            eigs = np.sort(np.abs(eigs))[::-1]
+            pbar.update(1)
+            if eigs.size < 2:
+                pbar.update(1)
+                return 0.0
+            result = float(1.0 - eigs[1])
+            pbar.update(1)
+            return result
+    else:
+        eigs = np.linalg.eigvals(P.T)
+        eigs = np.sort(np.abs(eigs))[::-1]
+        if eigs.size < 2:
+            return 0.0
+        return float(1.0 - eigs[1])
