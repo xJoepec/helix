@@ -1,21 +1,73 @@
-Helix — Operator‑Algebraic Diagnostics for Deep Nets
+# Helix — Operator‑Algebraic Diagnostics for Deep Nets
 
-Helix turns the “deep nets as manifold sculptors” picture into computable diagnostics using operator‑algebraic tools. It exposes stable invariants and practical readouts that scale from toy MLPs to modern architectures.
+## What Problem Does Helix Solve?
 
-What Helix gives you
-- AF partitions (ReLU): Extract refining partitions across depth, build incidence B_k, masses τ_k, and dimension‑group style summaries.
-- CP embeddings (nonlinearity): Construct numerically stable unital CP maps Φ(X)=V* X V from incidence and masses; sanity‑check unitality/PSD and coisometry.
-- Flow diagnostics (invertible blocks): Ulam–Perron–Frobenius discretization with barycentric mass splitting and multi-samples per cell; read spectral gaps.
-- Topology signals: Persistent homology (β₀/β₁/β₂) and lifetime summaries for every dataset, with automatic fallbacks when specialised libraries are absent.
-- Capacity monitoring: Singular-value based capacity-loss scores per trainable layer to flag plasticity collapse and wasted width.
-- Sparse structure: Parent-pointer representation of refinements for O(n) memory and fast mass aggregation.
-- CLI, TUI and plots: One-command run to generate region, mass-consistency, CP, and Ulam spectra plots; optional interactive TUI.
+**The Challenge:** Deep neural networks are black boxes. We train them, but we don't understand *how* they organize information internally or *why* they sometimes fail.
 
-Install
+**The Insight:** Neural networks can be viewed as geometric transformers—each layer reshapes the input space. ReLU networks partition space into polyhedral regions, nonlinear layers mix information, and residual connections create flows. These are mathematical structures we can measure.
+
+**The Solution:** Helix provides diagnostic tools that expose these internal structures through stable mathematical invariants, giving you interpretable readouts about what your network is actually doing.
+
+## What Helix Measures (and Why It Matters)
+
+### 1. **Region Partitions** — How your network divides space
+
+**Logic:** ReLU activations split input space into polyhedral regions. Each layer refines these regions further.
+
+**What Helix extracts:**
+- **Incidence matrices B_k** — Which parent regions split into which child regions
+- **Mass distributions τ_k** — How much data falls into each region
+- **Region counts** — Complexity indicator (too few = underutilized, too many = overfitting risk)
+
+**Why it matters:** Reveals if your network is using its capacity effectively or wasting neurons.
+
+### 2. **Information Flow** — How data transforms between layers
+
+**Logic:** Each layer acts as an operator on data. Mathematically, these are completely positive (CP) maps that preserve positivity and probability structure.
+
+**What Helix computes:**
+- **CP map Φ(X) = V* X V** — The transformation operator from incidence and masses
+- **Unitality check** — Does the layer preserve total probability? (Φ(I) ≈ I)
+- **Coisometry check** — Is information preserved or lost? (V V* ≈ I)
+
+**Why it matters:** Detects information bottlenecks, gradient flow issues, and layer health.
+
+### 3. **Mixing Dynamics** — How residual/invertible blocks stir information
+
+**Logic:** Residual connections and invertible layers act like dynamical systems. The Ulam–Perron–Frobenius operator measures how quickly information mixes.
+
+**What Helix measures:**
+- **Spectral gap (1 - |λ₂|)** — Mixing speed (larger = faster convergence)
+- **Transfer operator P** — Discretized flow dynamics
+
+**Why it matters:** Predicts training stability and convergence properties.
+
+### 4. **Topology Signals** — Shape of your data manifold
+
+**What Helix computes:**
+- **Betti numbers (β₀, β₁, β₂)** — Connected components, loops, voids
+- **Persistent homology** — Which topological features are robust vs. noise
+
+**Why it matters:** Ensures your network architecture matches your data's geometric structure.
+
+### 5. **Capacity Health** — Are your layers learning or dying?
+
+**What Helix monitors:**
+- **Singular value spectra** — Effective dimensionality of each layer
+- **Capacity loss scores** — Flags plasticity collapse (dead neurons)
+
+**Why it matters:** Early warning system for training pathologies.
+
+## Installation
+
+**Requirements:**
+
 - Python 3.10+
-- Recommended: virtual environment
+- Virtual environment (recommended)
 
-```
+**Setup:**
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 python3 -m pip install -U pip
 python3 -m pip install -e .
@@ -23,9 +75,32 @@ python3 -m pip install -e .
 python3 -m pip install torch sympy matplotlib ripser
 ```
 
-Quickstart
-- CLI (non‑interactive)
+## How to Run Helix
+
+### 1. Interactive Menu (Easiest Start)
+
+Simply run helix without arguments to access the interactive menu:
+
+```bash
+./helix
 ```
+
+This launches a menu with six options:
+
+- **[1] Run Helix environment** — Analyze models in the built-in verification environments
+- **[2] Helix environment summary** — View available environments and their configurations
+- **[3] Run demo** — Quick demo using the two moons dataset (great first test!)
+- **[4] Analyze custom model/data** — Bring your own PyTorch model and data
+- **[5] Interactive TUI mode** — Full-featured terminal UI with live visualization
+- **[6] Exit** — Quit the program
+
+**Recommended first run:** Choose option `[3]` to see Helix in action on a simple classification task.
+
+### 2. Direct CLI Mode (Scripting & Automation)
+
+Skip the menu and run diagnostics directly with command-line flags:
+
+```bash
 ./helix \
   --no-train \
   --ulam-bins 25 \
@@ -33,15 +108,22 @@ Quickstart
   --plot --no-show \
   --save-prefix helix_out
 ```
+
 Generates: `helix_out_regions.png`, `helix_out_mass_consistency.png`, `helix_out_cp.png`, `helix_out_ulam.png`.
 
-- TUI (interactive)
-```
+### 3. Terminal UI Mode (Advanced Interactive)
+
+For live plots and richer interactivity, install TUI extras and launch:
+
+```bash
 python3 -m pip install -e .[tui]
-helix tui  # or: helix-tui
+./helix tui  # or: helix-tui
 ```
 
-- Programmatic API
+### 4. Programmatic API (Integration)
+
+Embed Helix diagnostics into your training loops or notebooks:
+
 ```python
 import numpy as np
 import torch, torch.nn as nn
