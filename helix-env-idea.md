@@ -1,7 +1,7 @@
 Operator-Algebra Helix Environment (Verifier/Prime Roadmap)
 ===========================================================
 
-This note captures a soup-to-nuts plan for turning the Helix operator-algebra diagnostics into Verifiers-compatible training/eval environments that look and feel like the Prime environments (e.g., `bixbench`, `hle`). The goal is to let a lab run the full AF/CP/flow workflow on a trained PyTorch model, and then expose the resulting health signals through Verifiers so Prime-rl (or any Verifiers-compatible trainer) can optimise agents against them.
+This note captures a soup-to-nuts plan for turning the Helix operator-algebra diagnostics into Verifiers-compatible training/eval environments that look and feel like the Prime environments (e.g., `bixbench`). The goal is to let a lab run the full AF/CP/flow workflow on a trained PyTorch model, and then expose the resulting health signals through Verifiers so Prime-rl (or any Verifiers-compatible trainer) can optimise agents against them.
 
 0. Setup (researcher mindset)
 -----------------------------

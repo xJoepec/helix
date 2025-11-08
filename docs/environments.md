@@ -10,8 +10,3 @@ bixbench (external benchmark wrapper)
 - Purpose: scientific reasoning benchmark; MCQ/open; single-turn/agentic.
 - Docs: environments/bixbench/README.md
 
-hle (Humanity’s Last Exam)
-- Location: environments/hle
-- Purpose: multi-modal benchmark; MCQ/short-answer; tool/judge configurable.
-- Docs: environments/hle/README.md
-

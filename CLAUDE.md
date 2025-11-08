@@ -108,7 +108,7 @@ Comprehensive coverage including:
 - `helixenv/` — Verifiers-compatible AF partition environment
   - `af_partition/env.py` — Main environment implementation
   - `llm_judge.py` — Physics-aware LLM evaluation
-- `bixbench/`, `hle/` — Additional benchmark environments
+- `bixbench/` — Additional benchmark environment
 
 ### Documentation: `docs/`
 

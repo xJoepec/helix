@@ -47,7 +47,7 @@ This directory contains comprehensive documentation for Helix. Start here to fin
 
 **Environments:** [environments.md](environments.md)
 - Verification benchmarks
-- helixenv, bixbench, hle
+- helixenv, bixbench
 - Custom environment setup
 
 **Applications:** [applications.md](applications.md)

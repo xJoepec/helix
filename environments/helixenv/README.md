@@ -13,7 +13,7 @@ variants focus on different aspects of neural network operator-algebraic analysi
 - **Tags**: operator-algebra, diagnostics, mcq, manifold-learning, topology
 
 ### Quickstart
-Run with Verifiers (vf-eval) similar to bixbench/hle:
+Run with Verifiers (vf-eval) similar to bixbench:
 
 ```bash
 uv run vf-eval helix/af_partition:v0 -a '{"max_episodes": 8}'
@@ -43,7 +43,7 @@ helix helixenv --dataset-type circles --samples 1000 --noise 0.05 --width 20 --e
 ```
 
 Interactive mode (`helix` with no arguments) also prompts for the key using a non-echoing input. The
-key is only exported for the current process, matching how `bixbench` and `hle` expect judge keys.
+key is only exported for the current process, matching how `bixbench` expects judge keys.
 
 Enable the optional LLM judge when calling the Verifiers loader:
 
@@ -146,7 +146,7 @@ to analyse custom networks.
 ### Notes
 - The Verifiers loader emits multiple-choice prompts with deterministic scoring, so the API key is
   optional today. Future rubric extensions (LLM-based diagnostics, narrative rationales) will reuse
-  the same key handling, keeping parity with `bixbench` and `hle`.
+  the same key handling, keeping parity with `bixbench`.
 - Multiple dataset types provide diverse testing scenarios for operator-algebraic diagnostics,
   from basic 2D classification to complex 3D manifold learning challenges.
 
