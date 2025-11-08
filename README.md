@@ -1,5 +1,7 @@
 # Helix — Operator‑Algebraic Diagnostics for Deep Nets
 
+![[IMG_0444.jpeg]]
+
 ## What Problem Does Helix Solve?
 
 **The Challenge:** Deep neural networks are black boxes. We train them, but we don't understand *how* they organize information internally or *why* they sometimes fail.
