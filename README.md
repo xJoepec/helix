@@ -158,7 +158,7 @@ print("spectral gap:", spectral_gap(P))
 Project Layout
 - code/helix: core library modules (partitions, cp, ulam, ktheory, diagnostics, sparse, plotting, TUI/CLI wrappers)
 - code/examples: runnable demo
-- environments/: verifiers/eval environments (`helixenv`, `bixbench`)
+- environments/: verifiers/eval environments (`helixenv`, `ktheory`, `bixbench`)
 - docs/: user and developer documentation (overview, concepts, API, CLI/TUI, troubleshooting)
 - code/tests: unit tests (direct invocation supported; see docs)
 - helix: local CLI helper to run the package from the repo without installing

@@ -153,7 +153,7 @@ to analyse custom networks.
 ### Future Roadmap
 Planned enhancements include:
 - **Persistent Homology Trajectories**: Track barcodes across training checkpoints
-- **K-Theory Environment**: Bratteli diagram analysis and K₀/K₁ invariant computation
+- **K-Theory Environment**: Delivered separately as `environments/ktheory` for Bratteli diagram analysis and K₀/K₁ invariant computation
 - **Equivariance Testing**: Group symmetry violation detection and monitoring
 - **Visualization Dashboard (GUI)**: Live Bratteli diagrams and PF spectra beyond the CLI cards
 - **Multi-architecture Support**: Vision transformers, CNNs, and graph neural networks
