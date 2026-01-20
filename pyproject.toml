@@ -1,0 +1,114 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "helix"
+version = "0.1.0"
+description = "Operator-algebraic diagnostics for deep nets (AF partitions, CP maps, Ulam PF)."
+readme = "README.md"
+requires-python = ">=3.9,<3.14"
+authors = [
+  { name = "Project Helix" }
+]
+license = { text = "MIT" }
+dependencies = [
+  "numpy>=1.23",
+  "torch>=2.0",
+]
+keywords = ["operator-algebras", "machine-learning", "diagnostics", "AF", "CP maps", "Ulam"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+sympy = ["sympy>=1.12"]
+viz = ["matplotlib>=3.5", "networkx>=2.8"]
+topology = ["ripser>=0.6"]
+
+# Performance optimization components
+performance = [
+  "numba>=0.57",  # JIT compilation for massive speedups
+  "joblib>=1.3",  # Parallel execution
+  "scipy>=1.10",  # Sparse matrix operations
+]
+
+gpu = [
+  "cupy-cuda12x>=12.0; platform_system=='Linux'",  # CUDA acceleration for Linux
+  "mlx>=0.0.5; platform_system=='Darwin' and platform_machine=='arm64'",  # Metal for Apple Silicon
+]
+
+accelerate = [
+  "helix[performance]",
+  "helix[gpu]",
+]
+
+# Installation profiles
+minimal = ["scipy>=1.10"]  # Just core functionality with scipy
+
+standard = [
+  "helix[minimal]",
+  "helix[viz]",
+  "helix[topology]",
+]
+
+optimized = [
+  "helix[standard]",
+  "helix[performance]",
+]
+
+full = [
+  "helix[standard]",
+  "helix[performance]",
+  "textual>=0.58",
+  "platformdirs>=4.0",
+  "toml>=0.10",
+]
+
+tui = [
+  "textual>=0.58",
+  "platformdirs>=4.0",  # cross-platform config directory support
+  "toml>=0.10",  # config file format
+]
+
+research = [
+  "helix[full]",
+  "helix[sympy]",
+  "jupyter>=1.0",
+  "ipython>=8.0",
+]
+
+dev = [
+  "helix[full]",
+  "ruff>=0.5",
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.0",
+  "sphinx>=6.0",
+  "hypothesis>=6.0",
+]
+
+[project.scripts]
+helix = "helix.cli:main"
+helix-tui = "helix.tui:main"
+
+[tool.setuptools]
+package-dir = {"" = "code"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["code"]
+include = ["helix*"]
+
+[tool.setuptools.package-data]
+"helix" = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
