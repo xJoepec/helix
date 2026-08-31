@@ -60,6 +60,16 @@ python3 -m pip install -e .[full]          # Everything: torch, viz, tui, topolo
 
 ## Run Helix Three Ways
 
+### Keyless Unsloth monitoring
+
+Observe a local Unsloth Studio run without loading a second model or mutating Studio:
+
+```bash
+helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+```
+
+See [`docs/grok-watch.md`](docs/grok-watch.md) for the loopback and GPU-safety contract.
+
 ### 1. Interactive Menu (on-ramp)
 
 ```bash

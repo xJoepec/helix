@@ -4487,6 +4487,9 @@ def run_ktheory_analysis(argv: List[str]) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
     # Early warning for missing PyTorch
     if torch is None:
         commands_requiring_torch = ['demo', 'helixenv', 'analyze']
@@ -4513,6 +4516,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if argv and len(argv) > 0 and argv[0] == "reveals":
         return run_reveals_showcase(argv[1:])
+
+    if argv and len(argv) > 0 and argv[0] == "grok-watch":
+        from .grok_watch import run_grok_watch
+
+        return run_grok_watch(argv[1:])
 
     # New: K-theory analysis subcommand
     if argv and len(argv) > 0 and argv[0] == "ktheory":
