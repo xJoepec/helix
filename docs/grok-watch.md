@@ -20,5 +20,10 @@ keyless requests when no token is available, and uses bearer authentication when
 `--studio-auth bearer` to require a token. The token is sent only in the `Authorization` header, remains in
 memory, and is never placed in URLs or telemetry output.
 
-The command currently reports Studio telemetry and safety state. Temporal checkpoint features and
-behavioral confirmation are separate APIs; a telemetry snapshot is not evidence of grokking.
+The command currently reports Studio telemetry and safety state. Temporal phase scoring requires complete,
+internally consistent provenance for the source, run ID, checkpoint ID and fingerprint, probe set ID, and
+schema version. A detector baseline and its scored observation must share source, run, probe-set, and schema
+identity; later checkpoints from that same run remain scoreable when they carry their own provenance.
+
+Temporal checkpoint features and behavioral confirmation are separate APIs. Neither a telemetry snapshot nor a
+phase-distance candidate is evidence of grokking.
