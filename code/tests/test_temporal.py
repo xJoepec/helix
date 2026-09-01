@@ -105,6 +105,32 @@ def test_detector_rejects_nonfinite_baseline() -> None:
         detector.fit([observation(0, 0.0, 0.0), observation(1, np.nan, 1.0)])
 
 
+def test_failed_refit_preserves_previous_fit_and_rejects_new_identity() -> None:
+    detector = TemporalPhaseDetector()
+    detector.fit([observation(0, 0.0, 0.0), observation(1, 1.0, 1.0)])
+    previous_score = detector.score(observation(2, 0.5, 0.5))
+    failed_baseline = [
+        replace(
+            observation(0, 0.0, 0.0, run_id="new-run"),
+            features={"z": 0.0},
+        ),
+        replace(
+            observation(1, 0.0, 0.0, run_id="new-run"),
+            features={"z": np.nan},
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="finite"):
+        detector.fit(failed_baseline)
+
+    assert detector.score(observation(2, 0.5, 0.5)) == previous_score
+    new_run_observation = replace(
+        observation(2, 0.0, 0.0, run_id="new-run"),
+        features={"z": 1.0},
+    )
+    assert_insufficient_data(detector.score(new_run_observation))
+
+
 @pytest.mark.parametrize(
     "invalid_observation_factory",
     [

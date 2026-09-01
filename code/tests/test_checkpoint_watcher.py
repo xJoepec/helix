@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+import pytest
 from helix.integrations import checkpoints as checkpoints_module
 from helix.integrations.checkpoints import CheckpointWatcher
 
@@ -143,6 +144,36 @@ def test_marks_complete_checkpoint_with_old_mtimes_stable(tmp_path) -> None:
     assert [ref.step for ref in refs] == [15]
     assert refs[0].stable is True
     assert refs[0].stability_reason == "stable"
+
+
+@pytest.mark.parametrize(
+    ("artifact_name", "is_directory"),
+    [
+        ("model.safetensors.tmp", False),
+        ("adapter_model.safetensors.partial", False),
+        ("tmp-checkpoint-save", True),
+        ("checkpoint-save.incomplete", True),
+    ],
+    ids=["tmp-file", "partial-file", "tmp-directory", "incomplete-directory"],
+)
+def test_rejects_complete_checkpoint_with_save_in_progress_artifact(
+    tmp_path, artifact_name: str, is_directory: bool
+) -> None:
+    checkpoint = tmp_path / "checkpoint-17"
+    checkpoint.mkdir()
+    model = checkpoint / "model.safetensors"
+    model.write_bytes(b"complete old weights")
+    _trainer_state(checkpoint, global_step=17)
+    old = time.time() - 120
+    for path in (model, checkpoint / "trainer_state.json"):
+        os.utime(path, (old, old))
+    artifact = checkpoint / artifact_name
+    if is_directory:
+        artifact.mkdir()
+    else:
+        artifact.write_bytes(b"partial new weights")
+
+    assert CheckpointWatcher(min_age_seconds=60).discover(tmp_path, stable_only=True) == []
 
 
 def test_skips_checkpoint_when_age_stat_races_with_save(tmp_path, monkeypatch) -> None:

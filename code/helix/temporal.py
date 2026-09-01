@@ -63,22 +63,26 @@ class TemporalPhaseDetector:
         names = set(observations[0].features)
         for item in observations[1:]:
             names &= set(item.features)
-        self._names = tuple(sorted(names))
-        if not self._names:
+        fitted_names = tuple(sorted(names))
+        if not fitted_names:
             raise ValueError("baseline observations share no features")
-        self._schema_version = observations[0].schema_version
-        self._provenance_identity = _provenance_identity(observations[0])
         matrix = np.array(
-            [[item.features[name] for name in self._names] for item in observations], dtype=float
+            [[item.features[name] for name in fitted_names] for item in observations], dtype=float
         )
         if not np.isfinite(matrix).all():
             raise ValueError("baseline feature values must be finite")
-        self._mean = matrix.mean(axis=0)
+        mean = matrix.mean(axis=0)
         covariance = np.atleast_2d(np.cov(matrix, rowvar=False))
         diagonal = np.diag(np.diag(covariance))
         regularized = (1 - self.shrinkage) * covariance + self.shrinkage * diagonal
-        regularized += self.ridge * np.eye(len(self._names))
-        self._inverse = np.linalg.pinv(regularized)
+        regularized += self.ridge * np.eye(len(fitted_names))
+        inverse = np.linalg.pinv(regularized)
+
+        self._names = fitted_names
+        self._schema_version = observations[0].schema_version
+        self._provenance_identity = _provenance_identity(observations[0])
+        self._mean = mean
+        self._inverse = inverse
 
     def score(self, observation: FeatureObservation) -> PhaseScore:
         if not self._names:

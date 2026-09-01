@@ -25,6 +25,13 @@ def _mtime(path: Path) -> float:
     return path.stat().st_mtime
 
 
+def _is_save_in_progress_artifact(path: Path) -> bool:
+    name = path.name.casefold()
+    return name.startswith(("tmp", ".tmp", "partial-", ".partial-")) or name.endswith(
+        (".tmp", ".temp", ".part", ".partial", ".incomplete")
+    )
+
+
 class CheckpointWatcher:
     def __init__(self, min_age_seconds: float = 2.0) -> None:
         if not math.isfinite(min_age_seconds) or min_age_seconds < 0:
@@ -40,6 +47,12 @@ class CheckpointWatcher:
             match = re.fullmatch(r"checkpoint-(\d+)", path.name)
             root = path.resolve()
             if not match or not path.is_dir() or root.parent != output_root:
+                continue
+
+            try:
+                if any(_is_save_in_progress_artifact(item) for item in path.iterdir()):
+                    continue
+            except OSError:
                 continue
 
             index_path = path / "model.safetensors.index.json"

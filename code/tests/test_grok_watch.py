@@ -51,6 +51,25 @@ class FakeClient:
         return {"active_model": None}
 
 
+class WrongMetricsClient(FakeClient):
+    def get_run(self, run_id):
+        detail = super().get_run(run_id)
+        detail["metrics"] = {
+            "step_history": [7],
+            "loss_history": [1.2],
+            "lr_history": [0.0007],
+        }
+        return detail
+
+    def get_metrics(self, job_id):
+        return {
+            "job_id": "job_other",
+            "current_step": 99,
+            "current_loss": 9.9,
+            "current_lr": 0.0099,
+        }
+
+
 def test_snapshot_marks_inference_as_blocked_during_training() -> None:
     snapshot = build_snapshot(FakeClient())
     assert snapshot["run"]["id"] == "job_1"
@@ -82,6 +101,48 @@ def test_idle_status_with_null_details_has_empty_progress() -> None:
 def test_json_cli_output(capsys) -> None:
     assert run_grok_watch(["--json"], client_factory=lambda _, **__: FakeClient()) == 0
     assert json.loads(capsys.readouterr().out)["status"]["step"] == 7
+
+
+@pytest.mark.parametrize("json_mode", [False, True], ids=["human", "json"])
+def test_cli_reports_bound_association(json_mode, capsys) -> None:
+    args = ["--json"] if json_mode else []
+
+    assert run_grok_watch(args, client_factory=lambda _, **__: FakeClient()) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    if json_mode:
+        assert json.loads(captured.out)["association"] == {
+            "selected_run_id": "job_1",
+            "status_job_id": "job_1",
+            "metrics_job_id": "job_1",
+            "state": "bound",
+        }
+    else:
+        assert "association: bound selected=job_1 status=job_1 metrics=job_1\n" in captured.out
+
+
+@pytest.mark.parametrize("json_mode", [False, True], ids=["human", "json"])
+def test_cli_reports_metrics_mismatch_and_returns_exit_code_2(json_mode, capsys) -> None:
+    args = ["--json"] if json_mode else []
+
+    assert run_grok_watch(args, client_factory=lambda _, **__: WrongMetricsClient()) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    if json_mode:
+        payload = json.loads(captured.out)
+        assert payload["association"] == {
+            "selected_run_id": "job_1",
+            "status_job_id": "job_1",
+            "metrics_job_id": "job_other",
+            "state": "mismatch",
+        }
+        assert payload["metrics"]["current_step"] == 7
+    else:
+        assert (
+            "association: mismatch selected=job_1 status=job_1 metrics=job_other\n" in captured.out
+        )
 
 
 def test_cli_forwards_auth_mode_and_token_only_as_client_keywords(capsys) -> None:
@@ -344,9 +405,13 @@ def test_explicit_run_preserves_its_persisted_state_when_status_names_another_ru
     }
 
 
-@pytest.mark.parametrize("metrics_job_id", [None, "job_b"])
-def test_unidentified_or_mismatched_live_metrics_fall_back_to_selected_run_history(
+@pytest.mark.parametrize(
+    ("metrics_job_id", "expected_state"),
+    [(None, "fallback"), ("job_b", "mismatch")],
+)
+def test_unidentified_or_mismatched_live_metrics_use_selected_run_history(
     metrics_job_id,
+    expected_state,
 ) -> None:
     class MetricsClient(FakeClient):
         def get_status(self):
@@ -389,7 +454,68 @@ def test_unidentified_or_mismatched_live_metrics_fall_back_to_selected_run_histo
     assert snapshot["metrics"]["current_step"] == 5
     assert snapshot["metrics"]["current_loss"] == 0.5
     assert snapshot["metrics"]["current_lr"] == 0.0005
+    assert snapshot["association"]["state"] == expected_state
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_cli_propagates_metrics_authentication_errors_with_redaction(status_code, capsys) -> None:
+    reason = "Unauthorized" if status_code == 401 else "Forbidden"
+
+    class AuthenticationFailureClient(FakeClient):
+        def get_metrics(self, job_id):
+            raise HTTPError(
+                "http://127.0.0.1:8888/api/train/metrics",
+                status_code,
+                f"{reason} test-token",
+                None,
+                None,
+            )
+
+    exit_code = run_grok_watch(
+        ["--studio-auth", "bearer", "--studio-token", "test-token", "--json"],
+        client_factory=lambda _, **__: AuthenticationFailureClient(),
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "test-token" not in captured.err
+    assert json.loads(captured.err) == {
+        "error": f"Studio API HTTP {status_code}: {reason} [redacted]"
+    }
+
+
+@pytest.mark.parametrize("metrics_failure", ["conflict", "no-content", "malformed"])
+def test_ordinary_unavailable_or_malformed_metrics_use_explicit_fallback(
+    metrics_failure,
+) -> None:
+    class UnavailableMetricsClient(FakeClient):
+        def get_run(self, run_id):
+            detail = super().get_run(run_id)
+            detail["metrics"] = {
+                "step_history": [6],
+                "loss_history": [1.3],
+                "lr_history": [0.0006],
+            }
+            return detail
+
+        def get_metrics(self, job_id):
+            if metrics_failure == "malformed":
+                return ["unexpected"]
+            status_code = 409 if metrics_failure == "conflict" else 204
+            raise HTTPError(
+                "http://127.0.0.1:8888/api/train/metrics",
+                status_code,
+                metrics_failure,
+                None,
+                None,
+            )
+
+    snapshot = build_snapshot(UnavailableMetricsClient())
+
     assert snapshot["association"]["state"] == "fallback"
+    assert snapshot["association"]["metrics_job_id"] is None
+    assert snapshot["metrics"]["current_step"] == 6
 
 
 def test_checkpoints_are_discovered_only_from_the_selected_run_output_dir(tmp_path) -> None:

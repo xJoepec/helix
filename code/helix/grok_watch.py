@@ -73,7 +73,13 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
 
     try:
         live_metrics = client.get_metrics(run.id)
-    except (HTTPError, OSError):
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise
+        live_metrics = None
+    except (OSError, TypeError, ValueError):
+        live_metrics = None
+    if not isinstance(live_metrics, dict):
         live_metrics = None
     hardware = client.get_hardware()
     inference = client.get_inference_status()
@@ -84,6 +90,8 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
     metrics = live_metrics if use_live_metrics else (detail.get("metrics") or {})
     metric_summary = _metric_summary(metrics)
     if status_job_id and not use_live_status:
+        association_state = "mismatch"
+    elif metrics_job_id is not None and not use_live_metrics:
         association_state = "mismatch"
     elif not use_live_metrics:
         association_state = "fallback"
