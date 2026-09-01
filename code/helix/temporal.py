@@ -120,7 +120,7 @@ def _has_complete_matching_provenance(observation: FeatureObservation) -> bool:
     provenance = observation.provenance
     assert isinstance(provenance, ObservationProvenance)
     return all(
-        isinstance(value, str) and value
+        isinstance(value, str) and value.strip()
         for value in (
             provenance.source,
             provenance.run_id,

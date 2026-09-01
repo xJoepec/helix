@@ -191,6 +191,15 @@ def test_detector_scores_a_future_checkpoint_from_the_same_run() -> None:
     assert score.status == "normal"
 
 
+def test_detector_rejects_whitespace_only_checkpoint_fingerprint() -> None:
+    detector = TemporalPhaseDetector()
+    detector.fit([observation(0, 0.0, 0.0), observation(1, 1.0, 1.0)])
+
+    score = detector.score(observation(2, 1.0, 1.0, checkpoint_fingerprint=" \t\n"))
+
+    assert_insufficient_data(score)
+
+
 def observation_with_missing_provenance() -> FeatureObservation:
     item = observation(2, 1.0, 1.0)
     object.__setattr__(item, "provenance", None)
