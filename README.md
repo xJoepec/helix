@@ -60,12 +60,15 @@ python3 -m pip install -e '.[full]'        # Everything: viz, tui, topology
 
 ## Run Helix Three Ways
 
-### Keyless Unsloth monitoring
+### Unsloth Studio monitoring
 
-Observe a local Unsloth Studio run without loading a second model or mutating Studio:
+Observe a local Unsloth Studio run without loading a second model or mutating Studio. The default auth mode
+uses keyless loopback GET requests when no token is configured; provide `UNSLOTH_STUDIO_TOKEN` (or the
+in-memory `--studio-token` flag) when Studio requires bearer authentication:
 
 ```bash
 helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+UNSLOTH_STUDIO_TOKEN=... helix grok-watch --studio-auth bearer --once --json
 ```
 
 See [`docs/grok-watch.md`](docs/grok-watch.md) for the loopback and GPU-safety contract.

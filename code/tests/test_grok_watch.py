@@ -80,8 +80,59 @@ def test_idle_status_with_null_details_has_empty_progress() -> None:
 
 
 def test_json_cli_output(capsys) -> None:
-    assert run_grok_watch(["--json"], client_factory=lambda _: FakeClient()) == 0
+    assert run_grok_watch(["--json"], client_factory=lambda _, **__: FakeClient()) == 0
     assert json.loads(capsys.readouterr().out)["status"]["step"] == 7
+
+
+def test_cli_forwards_auth_mode_and_token_only_as_client_keywords(capsys) -> None:
+    seen = {}
+
+    def client_factory(base_url, *, token=None, auth_mode="auto"):
+        seen.update(base_url=base_url, token=token, auth_mode=auth_mode)
+        return FakeClient()
+
+    assert (
+        run_grok_watch(
+            [
+                "--studio-url",
+                "http://localhost:8888",
+                "--studio-auth",
+                "bearer",
+                "--studio-token",
+                "test-token",
+                "--json",
+            ],
+            client_factory=client_factory,
+        )
+        == 0
+    )
+
+    assert seen == {
+        "base_url": "http://localhost:8888",
+        "token": "test-token",
+        "auth_mode": "bearer",
+    }
+    assert "test-token" not in capsys.readouterr().out
+
+
+def test_cli_redacts_bearer_token_from_connection_errors(capsys) -> None:
+    class FailingClient:
+        def get_status(self):
+            raise OSError("Studio rejected test-token")
+
+    assert (
+        run_grok_watch(
+            ["--studio-auth", "bearer", "--studio-token", "test-token", "--json"],
+            client_factory=lambda _, **__: FailingClient(),
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert "test-token" not in captured.err
+    assert json.loads(captured.err) == {
+        "error": "Studio API unavailable: Studio rejected [redacted]"
+    }
 
 
 def test_console_main_uses_process_arguments(monkeypatch) -> None:
@@ -461,7 +512,7 @@ def test_human_cli_reports_concise_http_error(capsys) -> None:
                 None,
             )
 
-    assert run_grok_watch([], client_factory=lambda _: FailingClient()) == 1
+    assert run_grok_watch([], client_factory=lambda _, **__: FailingClient()) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "error: Studio API HTTP 503: Service Unavailable\n"
@@ -472,7 +523,7 @@ def test_json_cli_reports_concise_connection_error(capsys) -> None:
         def get_status(self):
             raise OSError("connection refused")
 
-    assert run_grok_watch(["--json"], client_factory=lambda _: FailingClient()) == 1
+    assert run_grok_watch(["--json"], client_factory=lambda _, **__: FailingClient()) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert json.loads(captured.err) == {"error": "Studio API unavailable: connection refused"}

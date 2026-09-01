@@ -1,8 +1,9 @@
-"""Read-only, keyless client for a loopback Unsloth Studio instance."""
+"""Read-only client for a loopback Unsloth Studio instance."""
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
@@ -30,7 +31,15 @@ def _default_transport(url: str, headers: dict[str, str]) -> dict[str, Any]:
 class StudioClient:
     """Small read-only API surface; mutation endpoints are intentionally absent."""
 
-    def __init__(self, base_url: str, *, transport: JsonTransport | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        token: str | None = None,
+        auth_mode: str = "auto",
+        token_env: str = "UNSLOTH_STUDIO_TOKEN",
+        transport: JsonTransport | None = None,
+    ) -> None:
         parsed = urlparse(base_url)
         if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
             "127.0.0.1",
@@ -38,12 +47,23 @@ class StudioClient:
             "::1",
         }:
             raise ValueError("Studio URL must use a loopback host")
+        normalized_auth_mode = auth_mode.strip().lower()
+        if normalized_auth_mode not in {"auto", "keyless", "bearer"}:
+            raise ValueError("Studio auth mode must be auto, keyless, or bearer")
+        resolved_token = token if token is not None else os.getenv(token_env)
+        if normalized_auth_mode == "bearer" and not resolved_token:
+            raise ValueError("Studio bearer authentication requires a token")
         self.base_url = base_url.rstrip("/")
+        self._auth_mode = normalized_auth_mode
+        self._token = resolved_token
         self._transport = transport or _default_transport
 
     def _get(self, path: str, query: dict[str, object] | None = None) -> dict[str, Any]:
         suffix = f"?{urlencode(query)}" if query else ""
-        return self._transport(f"{self.base_url}{path}{suffix}", {"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        if self._auth_mode == "bearer" or (self._auth_mode == "auto" and self._token):
+            headers["Authorization"] = f"Bearer {self._token}"
+        return self._transport(f"{self.base_url}{path}{suffix}", headers)
 
     def list_runs(self, limit: int = 20, offset: int = 0) -> list[RunSummary]:
         payload = self._get("/api/train/runs", {"limit": limit, "offset": offset})

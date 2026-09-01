@@ -7,7 +7,7 @@ def test_rejects_non_loopback_url() -> None:
         StudioClient("http://example.com:8888")
 
 
-def test_lists_runs_without_authorization_header() -> None:
+def test_keyless_mode_omits_an_explicit_bearer_token_from_requests() -> None:
     seen = {}
 
     def transport(url, headers):
@@ -25,7 +25,63 @@ def test_lists_runs_without_authorization_header() -> None:
             "total": 1,
         }
 
-    runs = StudioClient("http://127.0.0.1:8888", transport=transport).list_runs(limit=1)
+    runs = StudioClient(
+        "http://127.0.0.1:8888",
+        token="test-token",
+        auth_mode="keyless",
+        transport=transport,
+    ).list_runs(limit=1)
     assert runs[0].id == "job_1"
     assert "Authorization" not in seen["headers"]
     assert "limit=1" in seen["url"]
+    assert "test-token" not in seen["url"]
+
+
+def test_auto_mode_without_a_token_omits_authorization_header(monkeypatch) -> None:
+    seen = {}
+    monkeypatch.delenv("UNSLOTH_STUDIO_TOKEN", raising=False)
+
+    def transport(url, headers):
+        seen.update(url=url, headers=headers)
+        return {"runs": [], "total": 0}
+
+    StudioClient("http://127.0.0.1:8888", transport=transport).list_runs()
+
+    assert "Authorization" not in seen["headers"]
+
+
+def test_explicit_bearer_mode_sends_normalized_authorization_header() -> None:
+    seen = {}
+
+    def transport(url, headers):
+        seen.update(url=url, headers=headers)
+        return {"runs": [], "total": 0}
+
+    StudioClient(
+        "http://127.0.0.1:8888",
+        token="test-token",
+        auth_mode=" BEARER ",
+        transport=transport,
+    ).list_runs()
+
+    assert seen["headers"]["Authorization"] == "Bearer test-token"
+    assert "test-token" not in seen["url"]
+
+
+def test_auto_mode_uses_token_from_the_configured_environment(monkeypatch) -> None:
+    seen = {}
+    monkeypatch.setenv("UNSLOTH_STUDIO_TOKEN", "environment-token")
+
+    def transport(url, headers):
+        seen.update(url=url, headers=headers)
+        return {"runs": [], "total": 0}
+
+    StudioClient("http://127.0.0.1:8888", transport=transport).list_runs()
+
+    assert seen["headers"]["Authorization"] == "Bearer environment-token"
+    assert "environment-token" not in seen["url"]
+
+
+def test_bearer_mode_requires_a_nonempty_token() -> None:
+    with pytest.raises(ValueError, match="requires a token"):
+        StudioClient("http://127.0.0.1:8888", auth_mode="bearer")

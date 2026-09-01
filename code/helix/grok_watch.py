@@ -1,9 +1,10 @@
-"""One-shot keyless Unsloth Studio telemetry for Temporal Helix."""
+"""One-shot Unsloth Studio telemetry for Temporal Helix."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -11,6 +12,13 @@ from urllib.error import HTTPError
 
 from .integrations.checkpoints import CheckpointWatcher
 from .integrations.unsloth import RunSummary, StudioClient
+
+
+def _redact_tokens(message: str, tokens: tuple[str | None, ...]) -> str:
+    for token in tokens:
+        if token:
+            message = message.replace(token, "[redacted]")
+    return message
 
 
 def _run_from_detail(detail: dict[str, Any]) -> RunSummary:
@@ -138,21 +146,29 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
     }
 
 
-def run_grok_watch(argv=None, *, client_factory: Callable[[str], object] = StudioClient) -> int:
-    parser = argparse.ArgumentParser(description="Observe keyless Unsloth Studio telemetry")
+def run_grok_watch(argv=None, *, client_factory: Callable[..., object] = StudioClient) -> int:
+    parser = argparse.ArgumentParser(description="Observe Unsloth Studio telemetry")
     parser.add_argument("--studio-url", default="http://127.0.0.1:8888")
+    parser.add_argument("--studio-auth", choices=("auto", "keyless", "bearer"), default="auto")
+    parser.add_argument("--studio-token")
     parser.add_argument("--run-id")
     parser.add_argument("--once", action="store_true", help="one-shot mode (currently the default)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    tokens = (args.studio_token, os.getenv("UNSLOTH_STUDIO_TOKEN"))
     try:
-        snapshot = build_snapshot(client_factory(args.studio_url), args.run_id)
+        client = client_factory(
+            args.studio_url,
+            token=args.studio_token,
+            auth_mode=args.studio_auth,
+        )
+        snapshot = build_snapshot(client, args.run_id)
     except HTTPError as exc:
-        message = f"Studio API HTTP {exc.code}: {exc.reason}"
+        message = f"Studio API HTTP {exc.code}: {_redact_tokens(str(exc.reason), tokens)}"
         print(json.dumps({"error": message}) if args.json else f"error: {message}", file=sys.stderr)
         return 1
     except OSError as exc:
-        message = f"Studio API unavailable: {exc}"
+        message = f"Studio API unavailable: {_redact_tokens(str(exc), tokens)}"
         print(json.dumps({"error": message}) if args.json else f"error: {message}", file=sys.stderr)
         return 1
     if args.json:
