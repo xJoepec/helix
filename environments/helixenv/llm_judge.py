@@ -457,7 +457,8 @@ class LLMJudge:
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
         return (
-            "You are a physicist specializing in neural network analysis through operator algebras.\n"
+            "You are a physicist specializing in neural network analysis through "
+            "operator algebras.\n"
             "\nEvaluate AF (Approximately Finite) partition structures using principles from:\n"
             "- Quantum mechanics (unitarity, gauge invariance)\n"
             "- Statistical mechanics (ergodicity, thermalization)\n"
@@ -470,14 +471,22 @@ class LLMJudge:
     def _parse_llm_response(self, response_text: str, timestamp: float) -> LLMJudgmentResult:
         """Parse LLM response into structured result."""
         try:
-            # Try to extract JSON from response
-            import re
-            json_match = re.search(r'\{[^}]*\}', response_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                parsed = json.loads(json_str)
-            else:
-                # Fallback: try to parse the entire response
+            # Decode the first complete JSON object, allowing nested objects and
+            # common LLM wrappers such as prose or fenced code blocks.
+            decoder = json.JSONDecoder()
+            parsed = None
+            for index, character in enumerate(response_text):
+                if character != "{":
+                    continue
+                try:
+                    candidate, _ = decoder.raw_decode(response_text, index)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(candidate, dict):
+                    parsed = candidate
+                    break
+
+            if parsed is None:
                 parsed = json.loads(response_text)
 
             # Validate required fields
@@ -524,7 +533,8 @@ class LLMJudge:
             },
             natural_language=(
                 "D3 stable (50 regions, β₁=2) | Topology: β₁=2 loops; persistent | "
-                "Dynamics: gapped, mass conserved | Physics: coherent wave; gauge invariant; massive phase"
+                "Dynamics: gapped, mass conserved | Physics: coherent wave; gauge invariant; "
+                "massive phase"
             ),
             expected_label="A",
             expected_scores={
@@ -534,7 +544,10 @@ class LLMJudge:
                 "topological_robustness": "excellent",
                 "information_preservation": "excellent"
             },
-            explanation="All metrics excellent: perfect mass conservation, low CP errors, large spectral gap, persistent topology"
+            explanation=(
+                "All metrics excellent: perfect mass conservation, low CP errors, large "
+                "spectral gap, persistent topology"
+            )
         ))
 
         # Example 2: Poor case
@@ -549,7 +562,8 @@ class LLMJudge:
             },
             natural_language=(
                 "D1 unstable (10 regions, trivial) | Topology: topologically trivial | "
-                "Dynamics: gapless, mass violated | Physics: decoherent; gauge anomaly; critical phase"
+                "Dynamics: gapless, mass violated | Physics: decoherent; gauge anomaly; "
+                "critical phase"
             ),
             expected_label="C",
             expected_scores={
@@ -559,7 +573,10 @@ class LLMJudge:
                 "topological_robustness": "poor",
                 "information_preservation": "poor"
             },
-            explanation="Multiple failures: mass conservation violated, large CP errors, small spectral gap, no persistent topology"
+            explanation=(
+                "Multiple failures: mass conservation violated, large CP errors, small spectral "
+                "gap, no persistent topology"
+            )
         ))
 
         return examples

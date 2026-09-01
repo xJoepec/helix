@@ -1,487 +1,248 @@
+"""Tests for the structured AF-metrics LLM judge API."""
+
 from __future__ import annotations
 
-import os
-import sys
-import unittest
-from unittest.mock import Mock, patch
+import json
 
-# Ensure the 'code' directory (package root for 'helix') is on sys.path
-PKG_ROOT = os.path.dirname(os.path.dirname(__file__))
-if PKG_ROOT not in sys.path:
-    sys.path.insert(0, PKG_ROOT)
+import numpy as np
+import pytest
+from helix.env_api import AFCPDiagnostics, AFLevelMetrics, AFMetrics
+from helix.partitions import AFExtraction
+from helix.topology import PersistentHomologySummary
 
-"""Tests for LLM judge implementation with rubric-based scoring.
+from environments.helixenv.llm_judge import LLMJudge, PhysicsRubric
 
-Imports from the package are done inside test bodies to avoid E402 with sys.path edits.
-"""
+RUBRIC_CATEGORIES = {
+    "wave_coherence",
+    "gauge_invariance",
+    "ergodic_mixing",
+    "topological_robustness",
+    "information_preservation",
+}
 
 
-class TestCalibrationExample(unittest.TestCase):
-    def test_calibration_example_creation(self):
-        """Test CalibrationExample dataclass creation."""
-        # Import here to avoid path issues
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import CalibrationExample
-
-        example = CalibrationExample(
-            prompt="Test prompt",
-            response="Test response",
-            physics_score=0.8,
-            reasoning="Good physics understanding",
-            key_concepts=["entropy", "spectral gap"]
+def make_level(
+    *,
+    depth: int = 1,
+    mass_error: float = 1e-12,
+    unital_error: float | None = 0.005,
+    coisometry_error: float = 0.003,
+    spectral_gap: float | None = 0.8,
+    average_lifetime_1: float | None = 0.9,
+) -> AFLevelMetrics:
+    """Build a complete AF level with independently chosen diagnostic values."""
+    cp_diagnostics = None
+    if unital_error is not None:
+        cp_diagnostics = AFCPDiagnostics(
+            unital_err_fro=unital_error,
+            coisometry_err_fro=coisometry_error,
+            psd_min_eig_violation=0.0,
         )
 
-        self.assertEqual(example.prompt, "Test prompt")
-        self.assertEqual(example.response, "Test response")
-        self.assertEqual(example.physics_score, 0.8)
-        self.assertEqual(example.reasoning, "Good physics understanding")
-        self.assertEqual(len(example.key_concepts), 2)
-
-    def test_calibration_example_to_dict(self):
-        """Test CalibrationExample conversion to dictionary."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import CalibrationExample
-
-        example = CalibrationExample(
-            prompt="Test",
-            response="Response",
-            physics_score=0.9,
-            reasoning="Excellent",
-            key_concepts=["test"]
+    persistent_homology = None
+    if average_lifetime_1 is not None:
+        persistent_homology = PersistentHomologySummary(
+            betti_numbers=(1, 2),
+            average_lifetimes=(0.0, average_lifetime_1),
+            max_lifetimes=(0.0, average_lifetime_1),
+            finite_pairs=(0, 2),
+            computed=True,
+            backend="test-fixture",
         )
 
-        example_dict = example.to_dict()
-
-        self.assertIsInstance(example_dict, dict)
-        self.assertEqual(example_dict["physics_score"], 0.9)
-        self.assertIn("prompt", example_dict)
-        self.assertIn("response", example_dict)
-
-
-class TestLLMJudge(unittest.TestCase):
-    def setUp(self):
-        """Set up test fixtures."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import CalibrationExample
-
-        self.calibration_examples = [
-            CalibrationExample(
-                prompt="What is entropy?",
-                response="Entropy measures disorder in a system.",
-                physics_score=0.7,
-                reasoning="Basic understanding shown",
-                key_concepts=["entropy", "disorder"]
-            ),
-            CalibrationExample(
-                prompt="Explain spectral gap",
-                response="Spectral gap is the difference between largest and second-largest eigenvalues.",
-                physics_score=0.9,
-                reasoning="Precise technical definition",
-                key_concepts=["spectral gap", "eigenvalues"]
-            )
-        ]
-
-    def test_llm_judge_initialization_with_api_key(self):
-        """Test LLMJudge initialization with API key."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        # Test with API key
-        judge = LLMJudge(
-            api_key="test-key",
-            model="gpt-4o-mini",
-            calibration_examples=self.calibration_examples
-        )
-
-        self.assertEqual(judge.api_key, "test-key")
-        self.assertEqual(judge.model, "gpt-4o-mini")
-        self.assertEqual(len(judge.calibration_examples), 2)
-        self.assertTrue(judge.use_api)
-
-    def test_llm_judge_initialization_without_api_key(self):
-        """Test LLMJudge initialization without API key (fallback mode)."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        # Test without API key
-        judge = LLMJudge(
-            api_key=None,
-            calibration_examples=self.calibration_examples
-        )
-
-        self.assertIsNone(judge.api_key)
-        self.assertFalse(judge.use_api)
-
-    def test_format_calibration_examples(self):
-        """Test calibration examples formatting."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-        formatted = judge._format_calibration_examples()
-
-        self.assertIsInstance(formatted, str)
-        self.assertIn("What is entropy?", formatted)
-        self.assertIn("Explain spectral gap", formatted)
-        self.assertIn("0.7", formatted)  # Score should be included
-        self.assertIn("0.9", formatted)
-
-    def test_build_prompt(self):
-        """Test prompt building with rubric and examples."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        prompt = judge._build_prompt(
-            user_prompt="What is a spectral gap?",
-            user_response="It's the gap between eigenvalues."
-        )
-
-        self.assertIsInstance(prompt, str)
-        self.assertIn("What is a spectral gap?", prompt)
-        self.assertIn("It's the gap between eigenvalues.", prompt)
-        self.assertIn("physics_score", prompt.lower())
-        self.assertIn("calibration", prompt.lower())
-
-    def test_parse_response_valid_json(self):
-        """Test parsing valid JSON response."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Valid JSON response
-        api_response = '''
-        {
-            "physics_score": 0.85,
-            "reasoning": "Good understanding of operator theory",
-            "key_concepts": ["spectral theory", "eigenvalues"]
-        }
-        '''
-
-        result = judge._parse_response(api_response)
-
-        self.assertEqual(result["physics_score"], 0.85)
-        self.assertEqual(result["reasoning"], "Good understanding of operator theory")
-        self.assertEqual(len(result["key_concepts"]), 2)
-
-    def test_parse_response_invalid_json(self):
-        """Test parsing invalid JSON response."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Invalid JSON
-        invalid_response = "This is not JSON at all"
-
-        result = judge._parse_response(invalid_response)
-
-        # Should fall back to default values
-        self.assertIn("physics_score", result)
-        self.assertIn("reasoning", result)
-        self.assertIsInstance(result["physics_score"], (int, float))
-
-    def test_parse_response_partial_json(self):
-        """Test parsing JSON with missing fields."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # JSON missing some required fields
-        partial_response = '{"physics_score": 0.6}'
-
-        result = judge._parse_response(partial_response)
-
-        self.assertEqual(result["physics_score"], 0.6)
-        # Should have default values for missing fields
-        self.assertIn("reasoning", result)
-        self.assertIn("key_concepts", result)
-
-    @patch('openai.OpenAI')
-    def test_evaluate_with_api_success(self, mock_openai_class):
-        """Test successful API evaluation."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        # Mock OpenAI client and response
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
-
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message = Mock()
-        mock_response.choices[0].message.content = '''
-        {
-            "physics_score": 0.8,
-            "reasoning": "Demonstrates solid understanding",
-            "key_concepts": ["test_concept"]
-        }
-        '''
-
-        mock_client.chat.completions.create.return_value = mock_response
-
-        judge = LLMJudge(
-            api_key="test-key",
-            model="gpt-4o-mini",
-            calibration_examples=self.calibration_examples
-        )
-
-        result = judge.evaluate(
-            prompt="Test prompt",
-            response="Test response"
-        )
-
-        self.assertEqual(result["physics_score"], 0.8)
-        self.assertEqual(result["reasoning"], "Demonstrates solid understanding")
-        mock_client.chat.completions.create.assert_called_once()
-
-    @patch('openai.OpenAI')
-    def test_evaluate_with_api_failure(self, mock_openai_class):
-        """Test API evaluation with failure (should fall back)."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        # Mock OpenAI client to raise exception
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
-        mock_client.chat.completions.create.side_effect = Exception("API Error")
-
-        judge = LLMJudge(
-            api_key="test-key",
-            calibration_examples=self.calibration_examples
-        )
-
-        result = judge.evaluate(
-            prompt="Test prompt",
-            response="Test response"
-        )
-
-        # Should fall back to heuristic evaluation
-        self.assertIn("physics_score", result)
-        self.assertIn("reasoning", result)
-        self.assertIsInstance(result["physics_score"], (int, float))
-
-    def test_evaluate_fallback_mode(self):
-        """Test evaluation in fallback mode (no API)."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        result = judge.evaluate(
-            prompt="What is entropy?",
-            response="Entropy is a measure of disorder in thermodynamics."
-        )
-
-        # Should return valid result structure
-        self.assertIn("physics_score", result)
-        self.assertIn("reasoning", result)
-        self.assertIn("key_concepts", result)
-        self.assertIsInstance(result["physics_score"], (int, float))
-        self.assertTrue(0.0 <= result["physics_score"] <= 1.0)
-
-    def test_heuristic_evaluation_keyword_matching(self):
-        """Test heuristic evaluation keyword matching."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Response with physics keywords
-        physics_response = "The spectral gap determines mixing time in Markov chains and operator theory."
-
-        result_physics = judge._heuristic_evaluation(
-            prompt="Explain spectral gap",
-            response=physics_response
-        )
-
-        # Response without physics keywords
-        generic_response = "I don't know much about this topic."
-
-        result_generic = judge._heuristic_evaluation(
-            prompt="Explain spectral gap",
-            response=generic_response
-        )
-
-        # Physics response should score higher
-        self.assertGreater(result_physics["physics_score"], result_generic["physics_score"])
-
-    def test_heuristic_evaluation_response_length(self):
-        """Test that heuristic evaluation considers response length."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Long detailed response
-        long_response = "The spectral gap is a fundamental concept in operator theory. " * 10
-
-        result_long = judge._heuristic_evaluation(
-            prompt="Explain spectral gap",
-            response=long_response
-        )
-
-        # Short response
-        short_response = "Yes."
-
-        result_short = judge._heuristic_evaluation(
-            prompt="Explain spectral gap",
-            response=short_response
-        )
-
-        # Longer response should generally score higher (all else being equal)
-        # Note: This might not always be true depending on implementation details
-        self.assertIsInstance(result_long["physics_score"], (int, float))
-        self.assertIsInstance(result_short["physics_score"], (int, float))
-
-    def test_evaluate_batch(self):
-        """Test batch evaluation functionality."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Prepare batch data
-        prompts = ["What is entropy?", "Explain spectral gap", "Define operator norm"]
-        responses = [
-            "Entropy measures disorder",
-            "Gap between eigenvalues",
-            "Maximum eigenvalue magnitude"
-        ]
-
-        results = judge.evaluate_batch(prompts, responses)
-
-        self.assertEqual(len(results), 3)
-        for result in results:
-            self.assertIn("physics_score", result)
-            self.assertIn("reasoning", result)
-            self.assertIsInstance(result["physics_score"], (int, float))
-
-    def test_score_bounds(self):
-        """Test that scores are properly bounded between 0 and 1."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Test with various responses
-        test_cases = [
-            ("What is entropy?", "I don't know"),
-            ("Explain spectral gap", "Spectral gap in operator theory"),
-            ("Define norm", "A norm is a function that assigns lengths")
-        ]
-
-        for prompt, response in test_cases:
-            result = judge.evaluate(prompt, response)
-            score = result["physics_score"]
-
-            self.assertGreaterEqual(score, 0.0, f"Score {score} is below 0 for response: {response}")
-            self.assertLessEqual(score, 1.0, f"Score {score} is above 1 for response: {response}")
-
-    def test_calibration_consistency(self):
-        """Test that similar responses to calibration examples get similar scores."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=self.calibration_examples)
-
-        # Response similar to calibration example
-        similar_response = "Entropy is a measure of disorder and randomness in systems."
-
-        result = judge.evaluate(
-            prompt="What is entropy?",
-            response=similar_response
-        )
-
-        # Should get a reasonable score (this is more of a sanity check)
-        score = result["physics_score"]
-        self.assertGreater(score, 0.3)  # Should be better than random
-        self.assertLess(score, 1.0)     # But not perfect
-
-
-class TestIntegrationTests(unittest.TestCase):
-    def test_llm_judge_with_real_physics_examples(self):
-        """Test LLM judge with realistic physics examples."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import CalibrationExample, LLMJudge
-
-        # Create physics-focused calibration examples
-        physics_examples = [
-            CalibrationExample(
-                prompt="What is the spectral gap in the context of Markov chains?",
-                response="The spectral gap is 1 minus the second-largest eigenvalue of the transition matrix, determining mixing time.",
-                physics_score=0.95,
-                reasoning="Precise definition with connection to mixing time",
-                key_concepts=["spectral gap", "eigenvalues", "mixing time", "Markov chains"]
-            ),
-            CalibrationExample(
-                prompt="Explain AF algebras in operator theory",
-                response="AF algebras are approximately finite-dimensional C*-algebras built as inductive limits of finite-dimensional algebras.",
-                physics_score=0.9,
-                reasoning="Technical accuracy with proper mathematical terminology",
-                key_concepts=["AF algebras", "C*-algebras", "inductive limits"]
-            )
-        ]
-
-        judge = LLMJudge(api_key=None, calibration_examples=physics_examples)
-
-        # Test with good physics response
-        good_response = "The spectral gap determines how quickly a Markov chain converges to its stationary distribution."
-        good_result = judge.evaluate(
-            prompt="What is the significance of the spectral gap?",
-            response=good_response
-        )
-
-        # Test with poor physics response
-        poor_response = "I think it's something about numbers."
-        poor_result = judge.evaluate(
-            prompt="What is the significance of the spectral gap?",
-            response=poor_response
-        )
-
-        # Good response should score higher
-        self.assertGreater(good_result["physics_score"], poor_result["physics_score"])
-
-    def test_error_resilience(self):
-        """Test that the judge handles various error conditions gracefully."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        judge = LLMJudge(api_key=None, calibration_examples=[])
-
-        # Test with empty strings
-        result = judge.evaluate("", "")
-        self.assertIn("physics_score", result)
-
-        # Test with very long strings
-        long_prompt = "What is entropy? " * 1000
-        long_response = "Entropy is disorder. " * 1000
-
-        result = judge.evaluate(long_prompt, long_response)
-        self.assertIn("physics_score", result)
-
-        # Test with special characters
-        special_prompt = "What is ∫∞₀ e^(-x²) dx?"
-        special_response = "It's √π/2 by Gaussian integral."
-
-        result = judge.evaluate(special_prompt, special_response)
-        self.assertIn("physics_score", result)
-
-    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-env-key'})
-    def test_api_key_from_environment(self):
-        """Test reading API key from environment variable."""
-        sys.path.insert(0, '/Users/nest/Desktop/GITHUB/helix/environments')
-        from helixenv.llm_judge import LLMJudge
-
-        # Should pick up API key from environment
-        _judge = LLMJudge(calibration_examples=[])
-
-        # Note: This test assumes the implementation reads from environment
-        # The actual behavior depends on how the LLMJudge handles API key discovery
-
-
-if __name__ == "__main__":
-    unittest.main()
+    return AFLevelMetrics(
+        depth=depth,
+        B=np.ones((1, 1), dtype=np.float64),
+        tau_prev=np.array([1.0]),
+        tau=np.array([1.0]),
+        mass_error=mass_error,
+        trace_residual_linf=mass_error,
+        wasted_regions=0,
+        n_regions=1,
+        combinatorial_entropy=0.0,
+        cp_diagnostics=cp_diagnostics,
+        persistent_homology=persistent_homology,
+        spectral_gap=spectral_gap,
+        k_theory_invariants={"rank": 1, "nullity": 0, "torsion": []},
+    )
+
+
+def make_metrics(*levels: AFLevelMetrics) -> AFMetrics:
+    """Build AFMetrics without relying on a machine-specific repository path."""
+    extraction = AFExtraction(
+        B_list=[level.B for level in levels],
+        tau_list=[level.tau for level in levels],
+        parts=[],
+        n_list=[level.n_regions for level in levels],
+        parent_of_list=[],
+    )
+    return AFMetrics(levels=levels, extraction=extraction)
+
+
+@pytest.fixture
+def offline_judge(monkeypatch: pytest.MonkeyPatch) -> LLMJudge:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    return LLMJudge(api_key=None)
+
+
+def test_default_rubric_has_complete_normalized_weighting() -> None:
+    rubric = PhysicsRubric.default_rubric()
+    criteria = vars(rubric)
+
+    assert set(criteria) == RUBRIC_CATEGORIES
+    assert sum(category["weight"] for category in criteria.values()) == pytest.approx(1.0)
+    assert rubric.wave_coherence["excellent"] == "CP coisometry error < 0.01"
+    assert rubric.ergodic_mixing["poor"] == "Spectral gap ≤ 0.1"
+
+
+def test_calibration_examples_anchor_stable_and_unstable_regimes(
+    offline_judge: LLMJudge,
+) -> None:
+    examples = offline_judge.calibration_examples
+
+    assert [example.expected_label for example in examples] == ["A", "C"]
+    assert set(examples[0].expected_scores) == RUBRIC_CATEGORIES
+    assert set(examples[0].expected_scores.values()) == {"excellent"}
+    assert set(examples[1].expected_scores.values()) == {"poor"}
+
+
+def test_heuristic_evaluation_scores_an_excellent_af_fixture(
+    offline_judge: LLMJudge,
+) -> None:
+    result = offline_judge.evaluate_af_metrics(
+        make_metrics(make_level()),
+        step=7,
+        timestamp=1234.5,
+        context={"phase": "validation"},
+    )
+
+    assert result.overall_label == "A"
+    assert result.rubric_scores == dict.fromkeys(RUBRIC_CATEGORIES, "excellent")
+    assert result.timestamp == 1234.5
+    assert result.model_used == "heuristic_fallback"
+    assert "weighted score 1.000" in result.explanation
+
+
+def test_heuristic_evaluation_uses_the_deepest_unstable_af_level(
+    offline_judge: LLMJudge,
+) -> None:
+    unstable = make_level(
+        depth=2,
+        mass_error=0.1,
+        unital_error=0.2,
+        coisometry_error=0.15,
+        spectral_gap=0.05,
+        average_lifetime_1=None,
+    )
+
+    result = offline_judge.evaluate_af_metrics(
+        make_metrics(make_level(depth=1), unstable),
+        timestamp=10.0,
+    )
+
+    assert result.overall_label == "C"
+    assert result.rubric_scores == dict.fromkeys(RUBRIC_CATEGORIES, "poor")
+    assert "Mass error: 1.00e-01" in result.explanation
+
+
+def test_heuristic_evaluation_reports_empty_partitions(offline_judge: LLMJudge) -> None:
+    result = offline_judge.evaluate_af_metrics(make_metrics(), timestamp=9.0)
+
+    assert result.overall_label == "C"
+    assert result.confidence == 1.0
+    assert result.rubric_scores == {}
+    assert result.consistency_flags == ["empty_partitions"]
+    assert result.explanation == "No partition levels found"
+
+
+def test_evaluation_without_key_or_fallback_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    judge = LLMJudge(api_key=None, fallback_to_heuristic=False)
+
+    with pytest.raises(ValueError, match="No API key provided"):
+        judge.evaluate_af_metrics(make_metrics(make_level()), timestamp=1.0)
+
+
+def test_prompt_contains_observation_rubric_calibration_and_json_contract(
+    offline_judge: LLMJudge,
+) -> None:
+    observation = offline_judge.obs_generator.generate_observation(
+        make_metrics(make_level()),
+        step=3,
+        timestamp=42.0,
+        metadata={"run": "fixture"},
+    )
+
+    prompt = offline_judge._build_evaluation_prompt(observation)
+
+    assert "STRUCTURED METRICS:" in prompt
+    assert '"mass_error_l1": 1e-12' in prompt
+    assert "NATURAL LANGUAGE SUMMARY:" in prompt
+    assert "D1 stable" in prompt
+    assert "PHYSICS RUBRIC:" in prompt
+    assert "WAVE_COHERENCE:" in prompt
+    assert "CALIBRATION EXAMPLES:" in prompt
+    assert "Expected Label: A" in prompt
+    assert '"rubric_scores"' in prompt
+    assert "overall stability label: A (stable), B (transitional), or C (unstable)" in prompt
+
+
+def test_prompt_omits_calibration_examples_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    judge = LLMJudge(api_key=None, enable_calibration=False)
+    observation = judge.obs_generator.generate_observation(
+        make_metrics(make_level()), step=0, timestamp=1.0
+    )
+
+    assert "CALIBRATION EXAMPLES:" not in judge._build_evaluation_prompt(observation)
+
+
+def valid_response_payload(*, confidence: float = 0.93) -> dict[str, object]:
+    return {
+        "overall_label": "A",
+        "confidence": confidence,
+        "rubric_scores": dict.fromkeys(RUBRIC_CATEGORIES, "excellent"),
+        "explanation": "All rubric thresholds are satisfied.",
+        "consistency_flags": [],
+    }
+
+
+def test_response_parser_accepts_fenced_nested_json(offline_judge: LLMJudge) -> None:
+    response = "Analysis follows.\n```json\n" + json.dumps(valid_response_payload()) + "\n```"
+
+    result = offline_judge._parse_llm_response(response, timestamp=77.0)
+
+    assert result.overall_label == "A"
+    assert result.confidence == 0.93
+    assert result.rubric_scores == dict.fromkeys(RUBRIC_CATEGORIES, "excellent")
+    assert result.timestamp == 77.0
+    assert result.model_used == "gpt-4"
+
+
+@pytest.mark.parametrize(("supplied", "expected"), [(-0.2, 0.0), (1.4, 1.0)])
+def test_response_parser_clamps_confidence(
+    offline_judge: LLMJudge,
+    supplied: float,
+    expected: float,
+) -> None:
+    result = offline_judge._parse_llm_response(
+        json.dumps(valid_response_payload(confidence=supplied)), timestamp=1.0
+    )
+
+    assert result.confidence == expected
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        "not JSON",
+        json.dumps({"overall_label": "A"}),
+        json.dumps({**valid_response_payload(), "overall_label": "stable"}),
+    ],
+)
+def test_response_parser_rejects_malformed_or_incomplete_results(
+    offline_judge: LLMJudge,
+    response: str,
+) -> None:
+    with pytest.raises(RuntimeError, match="Failed to parse LLM response"):
+        offline_judge._parse_llm_response(response, timestamp=1.0)

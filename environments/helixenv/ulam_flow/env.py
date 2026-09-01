@@ -14,6 +14,7 @@ import numpy as np
 
 try:  # pragma: no cover - optional dependency at runtime
     import verifiers as vf
+
     try:
         from verifiers import Messages, Parser  # type: ignore[attr-defined]
     except Exception:
@@ -120,7 +121,7 @@ class UlamFlowEnv(_VFEnv):
         # Collect residual-like layers (those that could represent flows)
         flow_layers = []
         for i, module in enumerate(self._model.modules()):
-            if hasattr(module, 'weight') and len(module.weight.shape) >= 2:
+            if hasattr(module, "weight") and len(module.weight.shape) >= 2:
                 # Treat each linear layer as a potential flow
                 flow_layers.append((i, module))
 
@@ -161,7 +162,9 @@ class UlamFlowEnv(_VFEnv):
                 jacobian_stats = self._compute_jacobian_statistics(grid_points, layer_idx)
 
                 # Compute expansion/contraction factors
-                expansion_factor, contraction_factor = self._compute_expansion_contraction(eigenvals)
+                expansion_factor, contraction_factor = self._compute_expansion_contraction(
+                    eigenvals
+                )
 
                 # Compute ergodicity measure
                 ergodicity_measure = self._compute_ergodicity_measure(P)
@@ -209,9 +212,9 @@ class UlamFlowEnv(_VFEnv):
             xx, yy = np.meshgrid(x, y)
             return np.column_stack([xx.ravel(), yy.ravel()])
         elif d == 3:
-            x = np.linspace(data_min[0], data_max[0], int(self._ulam_bins**(1/3)))
-            y = np.linspace(data_min[1], data_max[1], int(self._ulam_bins**(1/3)))
-            z = np.linspace(data_min[2], data_max[2], int(self._ulam_bins**(1/3)))
+            x = np.linspace(data_min[0], data_max[0], int(self._ulam_bins ** (1 / 3)))
+            y = np.linspace(data_min[1], data_max[1], int(self._ulam_bins ** (1 / 3)))
+            z = np.linspace(data_min[2], data_max[2], int(self._ulam_bins ** (1 / 3)))
             xx, yy, zz = np.meshgrid(x, y, z)
             return np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
         else:
@@ -235,10 +238,14 @@ class UlamFlowEnv(_VFEnv):
         grid_points: np.ndarray,
         flow_output: np.ndarray,
         data_min: np.ndarray,
-        data_max: np.ndarray
+        data_max: np.ndarray,
     ) -> np.ndarray:
         """Build the Ulam discretization of the Perron-Frobenius operator."""
-        n_cells = int(math.sqrt(len(grid_points))) if len(data_min) == 2 else int(len(grid_points)**(1/3))
+        n_cells = (
+            int(math.sqrt(len(grid_points)))
+            if len(data_min) == 2
+            else int(len(grid_points) ** (1 / 3))
+        )
         P = np.zeros((n_cells * n_cells, n_cells * n_cells))
 
         # This is a simplified implementation
@@ -248,7 +255,9 @@ class UlamFlowEnv(_VFEnv):
                 # Map input and output to cell indices
                 input_cell = self._point_to_cell(grid_points[i], data_min, data_max, n_cells)
                 if flow_output.shape[1] >= len(data_min):
-                    output_cell = self._point_to_cell(flow_output[i, :len(data_min)], data_min, data_max, n_cells)
+                    output_cell = self._point_to_cell(
+                        flow_output[i, : len(data_min)], data_min, data_max, n_cells
+                    )
                 else:
                     # Handle dimension mismatch
                     continue
@@ -267,7 +276,9 @@ class UlamFlowEnv(_VFEnv):
 
         return P
 
-    def _point_to_cell(self, point: np.ndarray, data_min: np.ndarray, data_max: np.ndarray, n_cells: int) -> int:
+    def _point_to_cell(
+        self, point: np.ndarray, data_min: np.ndarray, data_max: np.ndarray, n_cells: int
+    ) -> int:
         """Map a point to its cell index in the Ulam grid."""
         normalized = (point - data_min) / (data_max - data_min + 1e-10)
         normalized = np.clip(normalized, 0, 1 - 1e-10)
@@ -286,7 +297,9 @@ class UlamFlowEnv(_VFEnv):
             return float(-1.0 / math.log(abs(1.0 - spectral_gap)))
         return None
 
-    def _compute_jacobian_statistics(self, grid_points: np.ndarray, layer_idx: int) -> dict[str, float]:
+    def _compute_jacobian_statistics(
+        self, grid_points: np.ndarray, layer_idx: int
+    ) -> dict[str, float]:
         """Compute Jacobian determinant statistics."""
         # Simplified implementation - in practice you'd compute actual Jacobians
         n_samples = min(100, len(grid_points))
@@ -295,10 +308,7 @@ class UlamFlowEnv(_VFEnv):
         # Mock Jacobian determinants (replace with actual computation)
         jacobian_dets = np.random.lognormal(0, 0.3, n_samples)
 
-        return {
-            "mean": float(np.mean(jacobian_dets)),
-            "std": float(np.std(jacobian_dets))
-        }
+        return {"mean": float(np.mean(jacobian_dets)), "std": float(np.std(jacobian_dets))}
 
     def _compute_expansion_contraction(self, eigenvals: np.ndarray) -> tuple[float, float]:
         """Compute expansion and contraction factors."""

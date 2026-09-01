@@ -10,19 +10,20 @@ from typing import Optional, Tuple
 # OKLCH Color Palette (matching CLI)
 # Format: (lightness, chroma, hue)
 COLORS = {
-    "accent": (0.65, 0.20, 320.0),    # Bright magenta/pink
-    "shadow": (0.55, 0.18, 240.0),    # Bright blue
+    "accent": (0.65, 0.20, 320.0),  # Bright magenta/pink
+    "shadow": (0.55, 0.18, 240.0),  # Bright blue
     "headline": (0.70, 0.15, 140.0),  # Bright green
-    "subtle": (0.45, 0.05, 0.0),      # Dark gray
-    "error": (0.60, 0.22, 15.0),      # Bright red
-    "highlight": (0.75, 0.18, 200.0), # Cyan
-    "success": (0.65, 0.18, 140.0),   # Green (for success messages)
-    "warning": (0.70, 0.20, 60.0),    # Orange (for warnings)
-    "info": (0.60, 0.15, 200.0),      # Light blue (for info)
+    "subtle": (0.45, 0.05, 0.0),  # Dark gray
+    "error": (0.60, 0.22, 15.0),  # Bright red
+    "highlight": (0.75, 0.18, 200.0),  # Cyan
+    "success": (0.65, 0.18, 140.0),  # Green (for success messages)
+    "warning": (0.70, 0.20, 60.0),  # Orange (for warnings)
+    "info": (0.60, 0.15, 200.0),  # Light blue (for info)
     "background": (0.15, 0.02, 0.0),  # Very dark background
-    "surface": (0.20, 0.02, 0.0),     # Dark surface
-    "border": (0.35, 0.05, 0.0),      # Border color
+    "surface": (0.20, 0.02, 0.0),  # Dark surface
+    "border": (0.35, 0.05, 0.0),  # Border color
 }
+
 
 def oklch_to_rgb(lightness: float, chroma: float, hue: float) -> Tuple[int, int, int]:
     """
@@ -39,30 +40,37 @@ def oklch_to_rgb(lightness: float, chroma: float, hue: float) -> Tuple[int, int,
     if s == 0:
         r = g = b = lightness_val
     else:
+
         def hue_to_rgb(p, q, t):
             if t < 0:
                 t += 1
             if t > 1:
                 t -= 1
-            if t < 1/6:
+            if t < 1 / 6:
                 return p + (q - p) * 6 * t
-            if t < 1/2:
+            if t < 1 / 2:
                 return q
-            if t < 2/3:
-                return p + (q - p) * (2/3 - t) * 6
+            if t < 2 / 3:
+                return p + (q - p) * (2 / 3 - t) * 6
             return p
 
-        q = lightness_val * (1 + s) if lightness_val < 0.5 else lightness_val + s - lightness_val * s
+        q = (
+            lightness_val * (1 + s)
+            if lightness_val < 0.5
+            else lightness_val + s - lightness_val * s
+        )
         p = 2 * lightness_val - q
-        r = hue_to_rgb(p, q, h + 1/3)
+        r = hue_to_rgb(p, q, h + 1 / 3)
         g = hue_to_rgb(p, q, h)
-        b = hue_to_rgb(p, q, h - 1/3)
+        b = hue_to_rgb(p, q, h - 1 / 3)
 
     return (int(r * 255), int(g * 255), int(b * 255))
+
 
 def rgb_to_hex(r: int, g: int, b: int) -> str:
     """Convert RGB to hex color string."""
     return f"#{r:02x}{g:02x}{b:02x}"
+
 
 def get_color_hex(color_name: str) -> str:
     """Get hex color value for a named color."""
@@ -71,6 +79,7 @@ def get_color_hex(color_name: str) -> str:
     lightness, c, h = COLORS[color_name]
     r, g, b = oklch_to_rgb(lightness, c, h)
     return rgb_to_hex(r, g, b)
+
 
 def interpolate_color(color1: str, color2: str, t: float) -> str:
     """
@@ -98,13 +107,11 @@ def interpolate_color(color1: str, color2: str, t: float) -> str:
     r, g, b = oklch_to_rgb(lightness, c, h)
     return rgb_to_hex(r, g, b)
 
+
 # CSS Template for Textual
 def generate_css() -> str:
     """Generate CSS with the full color palette for Textual."""
-    css_lines = [
-        "/* Helix TUI Theme - Matching CLI OKLCH Palette */",
-        ""
-    ]
+    css_lines = ["/* Helix TUI Theme - Matching CLI OKLCH Palette */", ""]
 
     # Define CSS variables at root level (Textual syntax)
     for name in COLORS:
@@ -113,185 +120,188 @@ def generate_css() -> str:
     css_lines.append("")
 
     # Component-specific styling
-    css_lines.extend([
-        "/* Header styling */",
-        "Header {",
-        "    background: $accent;",
-        "    color: white;",
-        "    height: 3;",
-        "}",
-        "",
-        "/* Button styling */",
-        "Button {",
-        "    border: solid $accent;",
-        "    background: transparent;",
-        "}",
-        "",
-        "Button:hover {",
-        "    background: $accent;",
-        "    color: white;",
-        "    border: solid white;",
-        "}",
-        "",
-        "Button.primary {",
-        "    background: $accent;",
-        "    color: white;",
-        "}",
-        "",
-        "Button.primary:hover {",
-        "    background: $highlight;",
-        "}",
-        "",
-        "Button.secondary {",
-        "    border: solid $shadow;",
-        "}",
-        "",
-        "Button.danger {",
-        "    border: solid $error;",
-        "}",
-        "",
-        "/* DataTable styling */",
-        "DataTable {",
-        "    border: round $shadow;",
-        "    background: $surface;",
-        "}",
-        "",
-        "DataTable > .datatable--header {",
-        "    background: $accent;",
-        "    color: white;",
-        "    text-style: bold;",
-        "}",
-        "",
-        "DataTable > .datatable--cursor {",
-        "    background: $highlight 20%;",
-        "}",
-        "",
-        "DataTable > .datatable--hover {",
-        "    background: $shadow 10%;",
-        "}",
-        "",
-        "/* Input styling */",
-        "Input {",
-        "    border: solid $border;",
-        "    background: $surface;",
-        "}",
-        "",
-        "Input:focus {",
-        "    border: solid $accent;",
-        "}",
-        "",
-        "/* Container styling */",
-        "Container {",
-        "    padding: 0 1;",
-        "}",
-        "",
-        "Horizontal {",
-        "    height: auto;",
-        "}",
-        "",
-        "/* Progress bar styling */",
-        "ProgressBar {",
-        "    height: 1;",
-        "}",
-        "",
-        "ProgressBar > .progress--bar {",
-        "    color: $accent;",
-        "}",
-        "",
-        "ProgressBar > .progress--percentage {",
-        "    color: $highlight;",
-        "}",
-        "",
-        "/* Log styling */",
-        "Log {",
-        "    background: $surface;",
-        "    border: solid $border;",
-        "    padding: 0 1;",
-        "}",
-        "",
-        "/* Static text styling */",
-        "Static.headline {",
-        "    color: $headline;",
-        "    text-style: bold;",
-        "}",
-        "",
-        "Static.subtle {",
-        "    color: $subtle;",
-        "}",
-        "",
-        "Static.error {",
-        "    color: $error;",
-        "    text-style: bold;",
-        "}",
-        "",
-        "Static.success {",
-        "    color: $success;",
-        "}",
-        "",
-        "Static.warning {",
-        "    color: $warning;",
-        "}",
-        "",
-        "Static.info {",
-        "    color: $info;",
-        "}",
-        "",
-        "Static.accent {",
-        "    color: $accent;",
-        "    text-style: bold;",
-        "}",
-        "",
-        "/* Help panel styling */",
-        ".help-panel {",
-        "    border: round $accent;",
-        "    background: $surface;",
-        "    padding: 1 2;",
-        "    height: 12;",
-        "}",
-        "",
-        "/* Section headers */",
-        ".section-header {",
-        "    color: $headline;",
-        "    text-style: bold;",
-        "    padding: 1 0;",
-        "}",
-        "",
-        "/* Divider styling */",
-        ".divider {",
-        "    color: $border;",
-        "    height: 1;",
-        "}",
-        "",
-        "/* Footer styling */",
-        "Footer {",
-        "    background: $surface;",
-        "    color: $subtle;",
-        "}",
-        "",
-        "/* Command input styling */",
-        ".command-input {",
-        "    background: $background;",
-        "    border: solid $accent;",
-        "    padding: 0 1;",
-        "}",
-        "",
-        "/* DNA Helix Header */",
-        ".dna-helix-header {",
-        "    background: $background;",
-        "    padding: 1;",
-        "    height: auto;",
-        "    align: center middle;",
-        "}",
-        "",
-        "/* Results section */",
-        ".results-container {",
-        "    border: solid $border;",
-        "    padding: 1;",
-        "    margin: 1 0;",
-        "}",
-    ])
+    css_lines.extend(
+        [
+            "/* Header styling */",
+            "Header {",
+            "    background: $accent;",
+            "    color: white;",
+            "    height: 3;",
+            "}",
+            "",
+            "/* Button styling */",
+            "Button {",
+            "    border: solid $accent;",
+            "    background: transparent;",
+            "}",
+            "",
+            "Button:hover {",
+            "    background: $accent;",
+            "    color: white;",
+            "    border: solid white;",
+            "}",
+            "",
+            "Button.primary {",
+            "    background: $accent;",
+            "    color: white;",
+            "}",
+            "",
+            "Button.primary:hover {",
+            "    background: $highlight;",
+            "}",
+            "",
+            "Button.secondary {",
+            "    border: solid $shadow;",
+            "}",
+            "",
+            "Button.danger {",
+            "    border: solid $error;",
+            "}",
+            "",
+            "/* DataTable styling */",
+            "DataTable {",
+            "    border: round $shadow;",
+            "    background: $surface;",
+            "}",
+            "",
+            "DataTable > .datatable--header {",
+            "    background: $accent;",
+            "    color: white;",
+            "    text-style: bold;",
+            "}",
+            "",
+            "DataTable > .datatable--cursor {",
+            "    background: $highlight 20%;",
+            "}",
+            "",
+            "DataTable > .datatable--hover {",
+            "    background: $shadow 10%;",
+            "}",
+            "",
+            "/* Input styling */",
+            "Input {",
+            "    border: solid $border;",
+            "    background: $surface;",
+            "}",
+            "",
+            "Input:focus {",
+            "    border: solid $accent;",
+            "}",
+            "",
+            "/* Container styling */",
+            "Container {",
+            "    padding: 0 1;",
+            "}",
+            "",
+            "Horizontal {",
+            "    height: auto;",
+            "}",
+            "",
+            "/* Progress bar styling */",
+            "ProgressBar {",
+            "    height: 1;",
+            "}",
+            "",
+            "ProgressBar > .progress--bar {",
+            "    color: $accent;",
+            "}",
+            "",
+            "ProgressBar > .progress--percentage {",
+            "    color: $highlight;",
+            "}",
+            "",
+            "/* Log styling */",
+            "Log {",
+            "    background: $surface;",
+            "    border: solid $border;",
+            "    padding: 0 1;",
+            "}",
+            "",
+            "/* Static text styling */",
+            "Static.headline {",
+            "    color: $headline;",
+            "    text-style: bold;",
+            "}",
+            "",
+            "Static.subtle {",
+            "    color: $subtle;",
+            "}",
+            "",
+            "Static.error {",
+            "    color: $error;",
+            "    text-style: bold;",
+            "}",
+            "",
+            "Static.success {",
+            "    color: $success;",
+            "}",
+            "",
+            "Static.warning {",
+            "    color: $warning;",
+            "}",
+            "",
+            "Static.info {",
+            "    color: $info;",
+            "}",
+            "",
+            "Static.accent {",
+            "    color: $accent;",
+            "    text-style: bold;",
+            "}",
+            "",
+            "/* Help panel styling */",
+            ".help-panel {",
+            "    border: round $accent;",
+            "    background: $surface;",
+            "    padding: 1 2;",
+            "    height: 12;",
+            "}",
+            "",
+            "/* Section headers */",
+            ".section-header {",
+            "    color: $headline;",
+            "    text-style: bold;",
+            "    padding: 1 0;",
+            "}",
+            "",
+            "/* Divider styling */",
+            ".divider {",
+            "    color: $border;",
+            "    height: 1;",
+            "}",
+            "",
+            "/* Footer styling */",
+            "Footer {",
+            "    background: $surface;",
+            "    color: $subtle;",
+            "}",
+            "",
+            "/* Command input styling */",
+            ".command-input {",
+            "    background: $background;",
+            "    border: solid $accent;",
+            "    padding: 0 1;",
+            "}",
+            "",
+            "/* DNA Helix Header */",
+            ".dna-helix-header {",
+            "    background: $background;",
+            "    padding: 1;",
+            "    height: auto;",
+            "    align: center middle;",
+            "}",
+            "",
+            "/* Results section */",
+            ".results-container {",
+            "    border: solid $border;",
+            "    padding: 1;",
+            "    margin: 1 0;",
+            "}",
+        ]
+    )
 
     return "\n".join(css_lines)
+
 
 # Message type colors for log output
 MESSAGE_COLORS = {
@@ -303,6 +313,7 @@ MESSAGE_COLORS = {
     "headline": "headline",
     "normal": None,  # No special color
 }
+
 
 def get_message_style(message: str) -> Optional[str]:
     """
@@ -328,6 +339,7 @@ def get_message_style(message: str) -> Optional[str]:
 
     return None
 
+
 # DNA Helix frame colors (for gradient effect)
 def get_dna_frame_colors(frame_index: int, total_frames: int) -> Tuple[str, str]:
     """
@@ -339,6 +351,7 @@ def get_dna_frame_colors(frame_index: int, total_frames: int) -> Tuple[str, str]
     primary = interpolate_color("accent", "shadow", t)
     secondary = interpolate_color("shadow", "highlight", t)
     return primary, secondary
+
 
 # Export key theme elements
 __all__ = [

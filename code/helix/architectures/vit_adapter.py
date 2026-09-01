@@ -1,510 +1,311 @@
-"""Vision Transformer (ViT) adapter for AF partition extraction.
-
-This module provides specialized support for extracting AF partitions from
-Vision Transformer architectures, treating attention mechanisms as gauge
-field interactions between token representations.
-"""
+"""Vision Transformer attention diagnostics and AF-style partitions."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
+import torch
+import torch.nn as nn
 
-try:
-    import torch
-    import torch.nn as nn
-    from torch.nn import functional as F
-except ImportError:
-    torch = None
-    nn = None
-    F = None
+
+def _as_float_tensor(value: torch.Tensor | np.ndarray) -> torch.Tensor:
+    """Return a detached floating-point tensor without forcing a device move."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().float()
+    return torch.as_tensor(value, dtype=torch.float32)
 
 
 @dataclass
 class AttentionPartition:
-    """AF partition extracted from a single attention head."""
+    """Attention and gauge diagnostics for one head in one ViT layer."""
 
-    head_idx: int
     layer_idx: int
-    gate_patterns: np.ndarray  # (N, seq_len) binary attention patterns
-    attention_weights: np.ndarray  # (N, seq_len, seq_len) attention matrices
-    gauge_connection: np.ndarray  # Approximated gauge field components
-    partition_cells: List[np.ndarray]  # Grouped tokens with similar patterns
-    masses: np.ndarray  # Token mass distribution
+    head_idx: int
+    attention_weights: torch.Tensor
+    gauge_connection: torch.Tensor
+    sequence_length: int
+    embed_dim: int
+
+    def compute_attention_entropy(self) -> float:
+        """Return mean categorical entropy over attention query rows."""
+        probabilities = _as_float_tensor(self.attention_weights).clamp_min(0)
+        normalizer = probabilities.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+        probabilities = probabilities / normalizer
+        entropy = -(probabilities * probabilities.clamp_min(1e-12).log()).sum(dim=-1)
+        return float(entropy.mean().item()) if entropy.numel() else 0.0
+
+    def compute_gauge_field_strength(self) -> float:
+        """Return RMS curvature of the antisymmetric gauge connection."""
+        connection = _as_float_tensor(self.gauge_connection)
+        if connection.ndim < 2 or connection.numel() == 0:
+            return 0.0
+        curvature = connection - connection.transpose(-1, -2)
+        return float(curvature.square().mean().sqrt().item())
+
+    def to_af_partition_metrics(self) -> dict[str, float | int]:
+        """Convert this partition to scalar AF diagnostics."""
+        return {
+            "attention_entropy": self.compute_attention_entropy(),
+            "gauge_field_strength": self.compute_gauge_field_strength(),
+            "sequence_length": self.sequence_length,
+            "embed_dim": self.embed_dim,
+            "layer_idx": self.layer_idx,
+            "head_idx": self.head_idx,
+        }
 
 
 @dataclass
 class ViTPartitionExtraction:
-    """Complete AF partition extraction from a Vision Transformer."""
+    """Collection of per-head attention partitions from a ViT."""
 
-    layer_partitions: List[List[AttentionPartition]]  # [layer][head]
-    mlp_partitions: List[np.ndarray]  # Standard ReLU partitions from MLP blocks
-    B_list: List[np.ndarray]  # Incidence matrices (combined attention + MLP)
-    tau_list: List[np.ndarray]  # Mass vectors
-    token_trajectories: np.ndarray  # (N, seq_len, layers, dim) token evolution
-    gauge_field_strength: List[np.ndarray]  # Curvature tensors per layer
+    partitions: list[AttentionPartition]
+    total_layers: int
+    total_heads: int
+    global_embed_dim: int
+
+    def analyze_layer_wise_attention(self) -> dict[int, dict[str, float | int]]:
+        """Aggregate entropy and field strength independently for each layer."""
+        analysis: dict[int, dict[str, float | int]] = {}
+        for layer_idx in sorted({partition.layer_idx for partition in self.partitions}):
+            layer = [p for p in self.partitions if p.layer_idx == layer_idx]
+            analysis[layer_idx] = {
+                "avg_entropy": float(
+                    np.mean([partition.compute_attention_entropy() for partition in layer])
+                ),
+                "avg_field_strength": float(
+                    np.mean([partition.compute_gauge_field_strength() for partition in layer])
+                ),
+                "num_heads": len(layer),
+            }
+        return analysis
+
+    def compute_global_metrics(self) -> dict[str, float]:
+        """Aggregate scalar diagnostics across every captured head."""
+        if not self.partitions:
+            return {
+                "total_entropy": 0.0,
+                "avg_field_strength": 0.0,
+                "attention_diversity": 0.0,
+            }
+
+        entropies = np.asarray(
+            [partition.compute_attention_entropy() for partition in self.partitions],
+            dtype=np.float64,
+        )
+        field_strengths = np.asarray(
+            [partition.compute_gauge_field_strength() for partition in self.partitions],
+            dtype=np.float64,
+        )
+        return {
+            "total_entropy": float(entropies.sum()),
+            "avg_field_strength": float(field_strengths.mean()),
+            "attention_diversity": float(entropies.std()),
+        }
 
 
 class ViTAdapter:
-    """Adapter for extracting AF partitions from Vision Transformer models.
-
-    This adapter treats ViT components as follows:
-    - Attention heads: Gauge field interactions with Q/K/V as connection components
-    - MLP blocks: Standard ReLU partitions
-    - Layer interactions: Higher-order gauge field dynamics
-    """
+    """Capture attention tensors from ViT-like PyTorch modules."""
 
     def __init__(
         self,
-        model: Any,
+        model: nn.Module,
         *,
-        extract_attention_patterns: bool = True,
-        extract_mlp_patterns: bool = True,
-        compute_gauge_fields: bool = True,
-        attention_threshold: float = 0.1,
-        max_tokens: int = 1000
-    ):
-        """Initialize ViT adapter.
-
-        Parameters
-        ----------
-        model : Any
-            Vision Transformer model (transformers library or similar)
-        extract_attention_patterns : bool
-            Whether to extract attention-based partitions
-        extract_mlp_patterns : bool
-            Whether to extract MLP-based partitions
-        compute_gauge_fields : bool
-            Whether to compute gauge field approximations
-        attention_threshold : float
-            Threshold for binarizing attention weights
-        max_tokens : int
-            Maximum number of tokens to process (for memory efficiency)
-        """
-        if torch is None:
-            raise RuntimeError("PyTorch required for ViT adapter")
+        target_layers: list[int] | tuple[int, ...] | None = None,
+    ) -> None:
+        if not isinstance(model, nn.Module):
+            raise TypeError("model must be a torch.nn.Module")
 
         self.model = model
-        self.extract_attention = extract_attention_patterns
-        self.extract_mlp = extract_mlp_patterns
-        self.compute_gauge = compute_gauge_fields
-        self.attention_threshold = attention_threshold
-        self.max_tokens = max_tokens
+        self.target_layers = None if target_layers is None else set(target_layers)
+        self.attention_modules = self._find_attention_modules()
+        self.attention_weights: dict[int, torch.Tensor | None] = {}
+        self._hook_handles: list[torch.utils.hooks.RemovableHandle] = []
 
-        # Identify ViT components
-        self._identify_vit_components()
+    @staticmethod
+    def _layer_index(name: str, fallback: int) -> int:
+        match = re.search(r"(?:^|\.)(\d+)(?:\.|$)", name)
+        return int(match.group(1)) if match else fallback
 
-    def _identify_vit_components(self) -> None:
-        """Identify attention and MLP components in the model."""
-        self.attention_layers = []
-        self.mlp_layers = []
+    @staticmethod
+    def _is_attention_module(name: str, module: nn.Module) -> bool:
+        lowered = name.lower()
+        named_like_attention = any(
+            token in lowered for token in ("attention", "attn", "self_attn")
+        )
+        has_heads = hasattr(module, "num_heads") or hasattr(
+            module, "num_attention_heads"
+        )
+        return named_like_attention and has_heads
 
-        for name, module in self.model.named_modules():
-            # Look for attention components
-            if any(pattern in name.lower() for pattern in ['attention', 'attn', 'self_attn']):
-                self.attention_layers.append((name, module))
+    def _find_attention_modules(self) -> list[tuple[int, nn.Module]]:
+        modules: list[tuple[int, nn.Module]] = []
+        named_modules = (item for item in self.model.named_modules() if item[0])
+        for fallback, (name, module) in enumerate(named_modules):
+            if not self._is_attention_module(name, module):
+                continue
+            layer_idx = self._layer_index(name, fallback)
+            if self.target_layers is None or layer_idx in self.target_layers:
+                modules.append((layer_idx, module))
+        return modules
 
-            # Look for MLP/feed-forward components
-            if any(pattern in name.lower() for pattern in ['mlp', 'ffn', 'feed_forward']):
-                # Find ReLU activations within MLP
-                for sub_name, sub_module in module.named_modules():
-                    if isinstance(sub_module, nn.ReLU):
-                        self.mlp_layers.append((f"{name}.{sub_name}", sub_module))
+    @staticmethod
+    def _attention_from_output(
+        module: nn.Module, output: Any
+    ) -> torch.Tensor | None:
+        stored = getattr(module, "attention_weights", None)
+        if isinstance(stored, torch.Tensor) and stored.ndim == 4:
+            return stored
+
+        candidates = output if isinstance(output, (tuple, list)) else (output,)
+        for candidate in candidates:
+            if (
+                isinstance(candidate, torch.Tensor)
+                and candidate.ndim == 4
+                and candidate.shape[-1] == candidate.shape[-2]
+            ):
+                return candidate
+        return None
+
+    def register_attention_hooks(self) -> None:
+        """Register idempotent hooks and initialize capture slots."""
+        if self._hook_handles:
+            return
+
+        self.attention_weights = {
+            layer_idx: None for layer_idx, _ in self.attention_modules
+        }
+        for layer_idx, module in self.attention_modules:
+
+            def capture(
+                hooked_module: nn.Module,
+                _inputs: tuple[Any, ...],
+                output: Any,
+                *,
+                captured_layer: int = layer_idx,
+            ) -> None:
+                attention = self._attention_from_output(hooked_module, output)
+                if attention is not None:
+                    self.attention_weights[captured_layer] = attention.detach()
+
+            self._hook_handles.append(module.register_forward_hook(capture))
+
+    def remove_attention_hooks(self) -> None:
+        """Remove every hook owned by this adapter."""
+        for handle in self._hook_handles:
+            handle.remove()
+        self._hook_handles.clear()
+
+    @staticmethod
+    def _gauge_connection(attention: torch.Tensor) -> torch.Tensor:
+        connection = attention.mean(dim=0)
+        norm = torch.linalg.vector_norm(connection).clamp_min(1e-12)
+        return connection / norm
+
+    def _embed_dim_for(self, module: nn.Module) -> int:
+        for owner in (module, self.model):
+            for attribute in ("embed_dim", "hidden_size", "all_head_size"):
+                value = getattr(owner, attribute, None)
+                if isinstance(value, int):
+                    return value
+        config = getattr(self.model, "config", None)
+        return int(getattr(config, "hidden_size", 0))
+
+    def extract_attention_partitions(self) -> ViTPartitionExtraction:
+        """Build flat per-head partitions from the latest hook captures."""
+        partitions: list[AttentionPartition] = []
+        heads_per_layer: list[int] = []
+        modules_by_layer = dict(self.attention_modules)
+
+        for layer_idx, attention in sorted(self.attention_weights.items()):
+            if attention is None:
+                continue
+            if attention.ndim != 4 or attention.shape[-1] != attention.shape[-2]:
+                continue
+
+            num_heads = int(attention.shape[1])
+            heads_per_layer.append(num_heads)
+            module = modules_by_layer[layer_idx]
+            embed_dim = self._embed_dim_for(module)
+            for head_idx in range(num_heads):
+                head_attention = attention[:, head_idx : head_idx + 1]
+                partitions.append(
+                    AttentionPartition(
+                        layer_idx=layer_idx,
+                        head_idx=head_idx,
+                        attention_weights=head_attention,
+                        gauge_connection=self._gauge_connection(head_attention),
+                        sequence_length=int(attention.shape[-1]),
+                        embed_dim=embed_dim,
+                    )
+                )
+
+        layers = {partition.layer_idx for partition in partitions}
+        return ViTPartitionExtraction(
+            partitions=partitions,
+            total_layers=len(layers),
+            total_heads=max(heads_per_layer, default=0),
+            global_embed_dim=self._embed_dim_for(self.model),
+        )
 
     def extract_partitions(
         self,
-        X: np.ndarray,
-        sample_weights: Optional[np.ndarray] = None
+        inputs: torch.Tensor | np.ndarray,
+        sample_weights: np.ndarray | None = None,
     ) -> ViTPartitionExtraction:
-        """Extract AF partitions from ViT model.
-
-        Parameters
-        ----------
-        X : np.ndarray
-            Input data (N, C, H, W) for vision tasks or (N, seq_len, dim) for sequences
-        sample_weights : Optional[np.ndarray]
-            Optional sample weights
-
-        Returns
-        -------
-        ViTPartitionExtraction
-            Complete partition extraction with attention and MLP components
-        """
-        self.model.eval()
-        X_t = torch.from_numpy(X.astype(np.float32))
-
-        # Limit number of samples for memory efficiency
-        if len(X_t) > self.max_tokens:
-            indices = np.random.choice(len(X_t), self.max_tokens, replace=False)
-            X_t = X_t[indices]
-            if sample_weights is not None:
-                sample_weights = sample_weights[indices]
-
-        # Storage for extracted components
-        layer_partitions = []
-        mlp_partitions = []
-        token_trajectories = []
-        gauge_field_strength = []
-
-        # Hook storage
-        attention_outputs = {}
-        mlp_outputs = {}
-
-        def attention_hook(name):
-            def hook(module, input, output):
-                # Store attention weights and patterns
-                if hasattr(output, 'detach'):
-                    attention_outputs[name] = output.detach().cpu().numpy()
-                elif isinstance(output, tuple) and len(output) > 1:
-                    # Some models return (output, attention_weights)
-                    attention_outputs[name] = output[1].detach().cpu().numpy()
-            return hook
-
-        def mlp_hook(name):
-            def hook(module, input, output):
-                if hasattr(input[0], 'detach'):
-                    pre_activation = input[0].detach().cpu().numpy()
-                    mlp_outputs[name] = (pre_activation > 0).astype(np.uint8)
-            return hook
-
-        # Register hooks
-        attention_handles = []
-        mlp_handles = []
-
-        if self.extract_attention:
-            for name, module in self.attention_layers:
-                handle = module.register_forward_hook(attention_hook(name))
-                attention_handles.append(handle)
-
-        if self.extract_mlp:
-            for name, module in self.mlp_layers:
-                handle = module.register_forward_hook(mlp_hook(name))
-                mlp_handles.append(handle)
-
-        # Forward pass to collect data
-        with torch.no_grad():
-            _ = self.model(X_t)
-
-        # Process attention partitions
-        if self.extract_attention:
-            layer_partitions = self._process_attention_outputs(
-                attention_outputs, X_t, sample_weights
-            )
-
-            if self.compute_gauge:
-                gauge_field_strength = self._compute_gauge_fields(attention_outputs)
-
-        # Process MLP partitions
-        if self.extract_mlp:
-            mlp_partitions = self._process_mlp_outputs(mlp_outputs, sample_weights)
-
-        # Combine into unified incidence matrices
-        B_list, tau_list = self._combine_partitions(
-            layer_partitions, mlp_partitions, sample_weights
-        )
-
-        # Clean up hooks
-        for handle in attention_handles + mlp_handles:
-            handle.remove()
-
-        return ViTPartitionExtraction(
-            layer_partitions=layer_partitions,
-            mlp_partitions=mlp_partitions,
-            B_list=B_list,
-            tau_list=tau_list,
-            token_trajectories=np.array(token_trajectories) if token_trajectories else np.array([]),
-            gauge_field_strength=gauge_field_strength
-        )
-
-    def _process_attention_outputs(
-        self,
-        attention_outputs: Dict[str, np.ndarray],
-        X_t: torch.Tensor,
-        sample_weights: Optional[np.ndarray]
-    ) -> List[List[AttentionPartition]]:
-        """Process attention outputs into AF partitions."""
-        layer_partitions = []
-
-        for layer_name, attention_data in attention_outputs.items():
-            if attention_data.ndim != 4:  # Expected: (batch, heads, seq_len, seq_len)
-                continue
-
-            batch_size, num_heads, seq_len, _ = attention_data.shape
-            head_partitions = []
-
-            for head_idx in range(num_heads):
-                # Extract attention weights for this head
-                head_attention = attention_data[:, head_idx, :, :]  # (batch, seq_len, seq_len)
-
-                # Binarize attention patterns
-                attention_patterns = (head_attention > self.attention_threshold).astype(np.uint8)
-
-                # Create partition based on attention patterns
-                partition = self._create_attention_partition(
-                    head_attention, attention_patterns, head_idx, layer_name, sample_weights
-                )
-
-                head_partitions.append(partition)
-
-            layer_partitions.append(head_partitions)
-
-        return layer_partitions
-
-    def _create_attention_partition(
-        self,
-        attention_weights: np.ndarray,
-        attention_patterns: np.ndarray,
-        head_idx: int,
-        layer_name: str,
-        sample_weights: Optional[np.ndarray]
-    ) -> AttentionPartition:
-        """Create AF partition from attention patterns."""
-        batch_size, seq_len, _ = attention_weights.shape
-
-        # Flatten patterns for clustering
-        flattened_patterns = attention_patterns.reshape(batch_size, -1)
-
-        # Group samples with similar attention patterns
-        unique_patterns, inverse_indices = np.unique(
-            flattened_patterns, axis=0, return_inverse=True
-        )
-
-        # Create partition cells
-        partition_cells = []
-        for pattern_idx in range(len(unique_patterns)):
-            cell_indices = np.where(inverse_indices == pattern_idx)[0]
-            partition_cells.append(cell_indices)
-
-        # Compute masses
-        if sample_weights is None:
-            weights = np.ones(batch_size) / batch_size
-        else:
-            weights = sample_weights / sample_weights.sum()
-
-        masses = np.array([weights[cell].sum() for cell in partition_cells])
-
-        # Approximate gauge connection (simplified)
-        gauge_connection = self._approximate_gauge_connection(attention_weights)
-
-        # Parse layer index from name
-        layer_idx = self._extract_layer_index(layer_name)
-
-        return AttentionPartition(
-            head_idx=head_idx,
-            layer_idx=layer_idx,
-            gate_patterns=attention_patterns,
-            attention_weights=attention_weights,
-            gauge_connection=gauge_connection,
-            partition_cells=partition_cells,
-            masses=masses
-        )
-
-    def _process_mlp_outputs(
-        self,
-        mlp_outputs: Dict[str, np.ndarray],
-        sample_weights: Optional[np.ndarray]
-    ) -> List[np.ndarray]:
-        """Process MLP outputs into standard ReLU partitions."""
-        mlp_partitions = []
-
-        for layer_name, gate_patterns in mlp_outputs.items():
-            # gate_patterns is already binary (N, seq_len, hidden_dim)
-            if gate_patterns.ndim == 3:
-                # Flatten spatial dimensions for partition creation
-                batch_size, seq_len, hidden_dim = gate_patterns.shape
-                flattened = gate_patterns.reshape(batch_size, -1)
-
-                # Create partition signatures
-                signatures = [tuple(row) for row in flattened]
-                unique_sigs, inverse = np.unique(signatures, return_inverse=True)
-
-                # Group into cells
-                cells = []
-                for sig_idx in range(len(unique_sigs)):
-                    cell_indices = np.where(inverse == sig_idx)[0]
-                    cells.append(cell_indices)
-
-                mlp_partitions.append(np.array(cells, dtype=object))
-
-        return mlp_partitions
-
-    def _combine_partitions(
-        self,
-        layer_partitions: List[List[AttentionPartition]],
-        mlp_partitions: List[np.ndarray],
-        sample_weights: Optional[np.ndarray]
-    ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-        """Combine attention and MLP partitions into unified incidence matrices."""
-        B_list = []
-        tau_list = []
-
-        # Process each layer
-        max_layers = max(len(layer_partitions), len(mlp_partitions))
-
-        for layer_idx in range(max_layers):
-            # Combine all partitions for this layer
-            all_cells = []
-
-            # Add attention partitions
-            if layer_idx < len(layer_partitions):
-                for head_partition in layer_partitions[layer_idx]:
-                    all_cells.extend(head_partition.partition_cells)
-
-            # Add MLP partitions
-            if layer_idx < len(mlp_partitions):
-                all_cells.extend(mlp_partitions[layer_idx])
-
-            if not all_cells:
-                continue
-
-            # Compute masses for combined partition
-            if sample_weights is None:
-                total_samples = len(all_cells[0]) if all_cells else 1
-                weights = np.ones(total_samples) / total_samples
-            else:
-                weights = sample_weights / sample_weights.sum()
-
-            masses = np.array([weights[cell].sum() for cell in all_cells if len(cell) > 0])
-
-            # Create incidence matrix (simplified - assumes refinement structure)
-            if layer_idx == 0:
-                # First layer connects to single root
-                B = np.ones((1, len(all_cells)), dtype=np.int32)
-            else:
-                # Create connections based on partition overlap
-                prev_cells = len(tau_list[-1]) if tau_list else 1
-                B = np.zeros((prev_cells, len(all_cells)), dtype=np.int32)
-
-                # Simple parent-child assignment
-                for child_idx, child_cell in enumerate(all_cells):
-                    if len(child_cell) > 0:
-                        parent_idx = min(child_idx, prev_cells - 1)
-                        B[parent_idx, child_idx] = 1
-
-            B_list.append(B)
-            tau_list.append(masses)
-
-        return B_list, tau_list
-
-    def _approximate_gauge_connection(self, attention_weights: np.ndarray) -> np.ndarray:
-        """Approximate gauge connection from attention weights.
-
-        This treats attention as a discrete gauge field where:
-        - Q, K, V projections are components of the connection A_μ
-        - Attention weights represent parallel transport
-        """
-        batch_size, seq_len, _ = attention_weights.shape
-
-        # Compute "covariant derivative" approximation
-        # ∇_μ = ∂_μ + A_μ where A_μ is derived from attention
-        connection = np.zeros((batch_size, seq_len, seq_len))
-
-        for i in range(seq_len):
-            for j in range(seq_len):
-                if i != j:
-                    # Connection strength proportional to attention
-                    connection[:, i, j] = attention_weights[:, i, j]
-
-        # Normalize to make it closer to a proper connection
-        connection = connection / (np.linalg.norm(connection, axis=(1, 2), keepdims=True) + 1e-8)
-
-        return connection
-
-    def _compute_gauge_fields(self, attention_outputs: Dict[str, np.ndarray]) -> List[np.ndarray]:
-        """Compute gauge field strength tensors (curvature) from attention patterns."""
-        gauge_fields = []
-
-        for layer_name, attention_data in attention_outputs.items():
-            if attention_data.ndim != 4:
-                continue
-
-            batch_size, num_heads, seq_len, _ = attention_data.shape
-
-            # Compute field strength tensor F_μν = ∂_μ A_ν - ∂_ν A_μ + [A_μ, A_ν]
-            field_strength = np.zeros((batch_size, num_heads, seq_len, seq_len))
-
-            for head in range(num_heads):
-                A = attention_data[:, head, :, :]  # Connection for this head
-
-                # Discrete derivatives and commutators
-                for i in range(seq_len):
-                    for j in range(seq_len):
-                        if i != j:
-                            # Simplified field strength (anti-symmetric part)
-                            field_strength[:, head, i, j] = A[:, i, j] - A[:, j, i]
-
-            gauge_fields.append(field_strength)
-
-        return gauge_fields
-
-    def _extract_layer_index(self, layer_name: str) -> int:
-        """Extract layer index from layer name."""
-        import re
-        match = re.search(r'(\d+)', layer_name)
-        return int(match.group(1)) if match else 0
+        """Run the model once and extract its attention partitions."""
+        del sample_weights  # Legacy argument; attention diagnostics are per head.
+        try:
+            model_device = next(self.model.parameters()).device
+        except StopIteration:
+            model_device = torch.device("cpu")
+
+        tensor = _as_float_tensor(inputs).to(model_device)
+        was_training = self.model.training
+        self.register_attention_hooks()
+        try:
+            self.model.eval()
+            with torch.no_grad():
+                self.model(tensor)
+            return self.extract_attention_partitions()
+        finally:
+            self.remove_attention_hooks()
+            self.model.train(was_training)
 
 
 def extract_vit_partitions(
-    model: Any,
-    X: np.ndarray,
-    sample_weights: Optional[np.ndarray] = None,
-    **adapter_kwargs
+    model: nn.Module,
+    inputs: torch.Tensor | np.ndarray,
+    sample_weights: np.ndarray | None = None,
+    **adapter_kwargs: Any,
 ) -> ViTPartitionExtraction:
-    """Convenience function for extracting ViT partitions.
-
-    Parameters
-    ----------
-    model : Any
-        Vision Transformer model
-    X : np.ndarray
-        Input data
-    sample_weights : Optional[np.ndarray]
-        Optional sample weights
-    **adapter_kwargs
-        Additional arguments for ViTAdapter
-
-    Returns
-    -------
-    ViTPartitionExtraction
-        Complete ViT partition extraction
-    """
+    """Extract ViT attention partitions in one call."""
     adapter = ViTAdapter(model, **adapter_kwargs)
-    return adapter.extract_partitions(X, sample_weights)
+    return adapter.extract_partitions(inputs, sample_weights)
 
 
-# Physics interpretation utilities
-def interpret_attention_as_gauge_field(partition: AttentionPartition) -> Dict[str, Any]:
-    """Interpret attention partition in terms of gauge field theory."""
-    gauge_conn = partition.gauge_connection
-
-    # Compute gauge field properties
-    field_strength = np.zeros_like(gauge_conn)
-    batch_size, seq_len, _ = gauge_conn.shape
-
-    for i in range(seq_len):
-        for j in range(seq_len):
-            # Field strength F_ij = A_ij - A_ji (simplified)
-            field_strength[:, i, j] = gauge_conn[:, i, j] - gauge_conn[:, j, i]
-
-    # Gauge invariant quantities
-    wilson_loops = []
-    for b in range(batch_size):
-        # Compute simple Wilson loop around tokens 0→1→2→0
-        if seq_len >= 3:
-            loop = (
-                gauge_conn[b, 0, 1] *
-                gauge_conn[b, 1, 2] *
-                gauge_conn[b, 2, 0]
-            )
-            wilson_loops.append(loop)
-
+def interpret_attention_as_gauge_field(
+    partition: AttentionPartition,
+) -> dict[str, Any]:
+    """Return simple gauge-theoretic diagnostics for an attention partition."""
+    connection = _as_float_tensor(partition.gauge_connection)
+    field_strength = connection - connection.transpose(-1, -2)
+    sequence_length = connection.shape[-1] if connection.ndim >= 2 else 0
+    if sequence_length >= 3:
+        wilson_loops = (
+            connection[..., 0, 1]
+            * connection[..., 1, 2]
+            * connection[..., 2, 0]
+        )
+    else:
+        wilson_loops = torch.empty(0, device=connection.device)
     return {
-        "field_strength": field_strength,
-        "wilson_loops": np.array(wilson_loops) if wilson_loops else np.array([]),
-        "gauge_coupling": np.mean(np.abs(gauge_conn)),
-        "topological_charge": np.sum(field_strength, axis=(1, 2)),  # Simplified
+        "field_strength": field_strength.cpu().numpy(),
+        "wilson_loops": wilson_loops.cpu().numpy(),
+        "gauge_coupling": float(connection.abs().mean().item()),
+        "topological_charge": field_strength.sum(dim=(-1, -2)).cpu().numpy(),
     }
 
 

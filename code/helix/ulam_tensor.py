@@ -24,6 +24,7 @@ except ImportError:
 if JOBLIB_AVAILABLE:
     try:
         from joblib import Parallel, delayed
+
         USE_JOBLIB = True
     except ImportError:
         USE_JOBLIB = False
@@ -88,7 +89,7 @@ class TensorTrainOperator:
         # Validate TT structure (rank consistency)
         for i in range(self.d - 1):
             if cores[i].r_right != cores[i + 1].r_left:
-                raise ValueError(f"Rank mismatch at cores {i}, {i+1}")
+                raise ValueError(f"Rank mismatch at cores {i}, {i + 1}")
 
         # First and last cores should have rank 1 boundaries
         if cores[0].r_left != 1 or cores[-1].r_right != 1:
@@ -152,7 +153,6 @@ class TensorTrainOperator:
         split = self._axis_split
         assert split is not None
         input_shape = self._domain_shape()
-        output_shape = self._codomain_shape()
 
         expected_size = int(np.prod(input_shape))
         if vector.size != expected_size:
@@ -211,7 +211,7 @@ def _batch_evaluate_function(
     func: Callable[[Tuple[int, ...]], float],
     indices_batch: List[Tuple[int, ...]],
     use_parallel: bool = False,
-    n_jobs: int = -1
+    n_jobs: int = -1,
 ) -> np.ndarray:
     """Evaluate function on a batch of indices, optionally in parallel.
 
@@ -232,9 +232,7 @@ def _batch_evaluate_function(
             except Exception:
                 return 0.0
 
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(safe_eval)(idx) for idx in indices_batch
-        )
+        results = Parallel(n_jobs=n_jobs)(delayed(safe_eval)(idx) for idx in indices_batch)
         return np.array(results)
     else:
         # Sequential evaluation with vectorization where possible
@@ -243,7 +241,7 @@ def _batch_evaluate_function(
         # Try to vectorize if function supports it
         try:
             # Attempt to pass all indices at once
-            if hasattr(func, '__array_wrap__'):
+            if hasattr(func, "__array_wrap__"):
                 results = func(indices_batch)
             else:
                 # Fall back to loop
@@ -271,14 +269,13 @@ def tt_cross_approximation(
     max_sweeps: int = 10,
     use_parallel: bool = False,
     batch_size: int = 1000,
-    input_ndim: Optional[int] = None
+    input_ndim: Optional[int] = None,
 ) -> TensorTrainOperator:
-    """Compute tensor train decomposition using TT-cross approximation.
+    """Build a deterministic truncated tensor-train decomposition.
 
-    This adaptive algorithm automatically determines the optimal TT ranks
-    and constructs the decomposition with controlled approximation error.
-
-    Optimized version with batch evaluation and optional parallelization.
+    The tensor is evaluated exactly and compressed with sequential SVDs. This
+    is reliable for small and medium diagnostic grids; inputs that would need
+    an actual matrix-free TT-cross implementation are rejected explicitly.
 
     Parameters
     ----------
@@ -291,7 +288,7 @@ def tt_cross_approximation(
     tolerance : float
         Approximation tolerance
     max_sweeps : int
-        Maximum number of optimization sweeps
+        Reserved for compatibility with the former sampler.
     use_parallel : bool
         Whether to use parallel evaluation (requires joblib)
     batch_size : int
@@ -305,95 +302,54 @@ def tt_cross_approximation(
     TensorTrainOperator
         TT approximation of the tensor
     """
-    d = len(shape)
-    cores = []
+    del max_sweeps
 
-    # Initialize with random indices for cross approximation
-    rng = np.random.default_rng(42)
+    if not shape or any(size <= 0 for size in shape):
+        raise ValueError("shape dimensions must be positive")
+    if max_rank < 1:
+        raise ValueError("max_rank must be positive")
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
 
-    # Build cores from left to right
-    current_rank = 1
+    element_count = int(np.prod(shape, dtype=np.int64))
+    max_exact_elements = 1_000_000
+    if element_count > max_exact_elements:
+        raise ValueError(
+            f"TT decomposition requires {element_count:,} tensor evaluations; "
+            f"the reliable exact limit is {max_exact_elements:,}"
+        )
 
-    # Memoization cache for function evaluations
-    cache = {}
+    flat = np.empty(element_count, dtype=np.float64)
+    indices = np.ndindex(shape)
+    offset = 0
+    while offset < element_count:
+        batch = []
+        for _ in range(min(batch_size, element_count - offset)):
+            batch.append(next(indices))
+        values = _batch_evaluate_function(func, batch, use_parallel)
+        flat[offset : offset + len(values)] = values
+        offset += len(values)
 
-    for i in range(d):
-        n_i = shape[i]
+    residual = flat.reshape(shape)
+    cores: List[TensorTrainCore] = []
+    left_rank = 1
 
-        # Determine rank for this core
-        if i == d - 1:
-            next_rank = 1  # Last core must have r_right = 1
+    for axis_size in shape[:-1]:
+        matrix = residual.reshape(left_rank * axis_size, -1)
+        u, singular_values, vh = np.linalg.svd(matrix, full_matrices=False)
+
+        if singular_values.size == 0 or singular_values[0] == 0.0:
+            next_rank = 1
         else:
-            next_rank = min(max_rank, current_rank * n_i)
+            cutoff = tolerance * singular_values[0]
+            numerical_rank = max(1, int(np.count_nonzero(singular_values > cutoff)))
+            next_rank = min(max_rank, numerical_rank)
 
-        # Create core tensor
-        core_data = np.zeros((current_rank, n_i, next_rank))
+        cores.append(TensorTrainCore(u[:, :next_rank].reshape(left_rank, axis_size, next_rank)))
+        residual = singular_values[:next_rank, None] * vh[:next_rank]
+        left_rank = next_rank
 
-        # Collect all indices to evaluate for this core
-        indices_to_eval = []
-        eval_positions = []
-
-        for r_l in range(current_rank):
-            for j in range(n_i):
-                for r_r in range(next_rank):
-                    # Generate index pattern
-                    base_indices = tuple(rng.integers(0, s) for s in shape)
-                    indices = base_indices[:i] + (j,) + base_indices[i+1:]
-
-                    # Check cache first
-                    if indices not in cache:
-                        indices_to_eval.append(indices)
-                        eval_positions.append((r_l, j, r_r))
-
-        # Batch evaluate uncached indices
-        if indices_to_eval:
-            # Process in batches for memory efficiency
-            all_values = []
-            for batch_start in range(0, len(indices_to_eval), batch_size):
-                batch_end = min(batch_start + batch_size, len(indices_to_eval))
-                batch = indices_to_eval[batch_start:batch_end]
-
-                # Evaluate batch
-                batch_values = _batch_evaluate_function(func, batch, use_parallel)
-                all_values.extend(batch_values)
-
-                # Update cache
-                for idx, val in zip(batch, batch_values):
-                    cache[idx] = val
-
-            # Fill core data with evaluated values
-            for (r_l, j, r_r), idx in zip(eval_positions, indices_to_eval):
-                core_data[r_l, j, r_r] = cache[idx]
-
-        # Fill any cached values
-        for r_l in range(current_rank):
-            for j in range(n_i):
-                for r_r in range(next_rank):
-                    base_indices = tuple(rng.integers(0, s) for s in shape)
-                    indices = base_indices[:i] + (j,) + base_indices[i+1:]
-
-                    if indices in cache:
-                        core_data[r_l, j, r_r] = cache[indices]
-
-        # Orthogonalize core (QR decomposition)
-        reshaped = core_data.reshape(current_rank * n_i, next_rank)
-
-        # Use economy QR for efficiency
-        Q, R = np.linalg.qr(reshaped, mode='reduced')
-
-        # Update core and rank
-        if Q.shape[1] < next_rank:
-            next_rank = Q.shape[1]
-
-        core_data = Q[:, :next_rank].reshape(current_rank, n_i, next_rank)
-        cores.append(TensorTrainCore(core_data))
-
-        current_rank = next_rank
-
-        # Clear cache periodically to manage memory
-        if len(cache) > 100000:
-            cache.clear()
-
+    cores.append(TensorTrainCore(residual.reshape(left_rank, shape[-1], 1)))
     return TensorTrainOperator(cores, input_ndim=input_ndim)
 
 
@@ -402,7 +358,7 @@ def tensor_ulam_pf(
     box: Tuple[np.ndarray, np.ndarray],
     bins_per_dim: int = 20,
     max_rank: int = 10,
-    tolerance: float = 1e-6
+    tolerance: float = 1e-6,
 ) -> Tuple[TensorTrainOperator, List[np.ndarray]]:
     """Compute Ulam-Perron-Frobenius operator using tensor train decomposition.
 
@@ -441,7 +397,7 @@ def tensor_ulam_pf(
     def transfer_element(multi_index: Tuple[int, ...]) -> float:
         """Compute single element of the transfer matrix."""
         if len(multi_index) != 2 * d:
-            raise ValueError(f"Expected {2*d} indices, got {len(multi_index)}")
+            raise ValueError(f"Expected {2 * d} indices, got {len(multi_index)}")
 
         # Split into source and target indices
         source_idx = multi_index[:d]
@@ -478,11 +434,7 @@ def tensor_ulam_pf(
     # Compute TT decomposition of transfer operator
     shape = tuple([bins_per_dim] * (2 * d))
     tt_operator = tt_cross_approximation(
-        transfer_element,
-        shape,
-        max_rank=max_rank,
-        tolerance=tolerance,
-        input_ndim=d
+        transfer_element, shape, max_rank=max_rank, tolerance=tolerance, input_ndim=d
     )
 
     return tt_operator, centers_axes
@@ -513,10 +465,7 @@ def spectral_gap_tt(P_tt: TensorTrainOperator, num_eigenvalues: int = 5) -> floa
     try:
         # Find largest eigenvalues
         eigenvals, _ = eigs(
-            lin_op,
-            k=min(num_eigenvalues, n - 2),
-            which='LM',
-            v0=np.random.randn(n)
+            lin_op, k=min(num_eigenvalues, n - 2), which="LM", v0=np.random.randn(n)
         )
 
         # Sort by magnitude
@@ -578,7 +527,7 @@ def enhanced_ulam_pf(
     bins_per_dim: int = 20,
     use_tensor_train: bool = True,
     max_rank: int = 10,
-    **kwargs
+    **kwargs,
 ) -> Tuple[np.ndarray, List[np.ndarray], Optional[float]]:
     """Enhanced Ulam-PF computation with optional tensor train acceleration.
 
@@ -589,9 +538,7 @@ def enhanced_ulam_pf(
     """
     if use_tensor_train and len(box[0]) > 2:
         # Use tensor train for high-dimensional problems
-        tt_operator, centers = tensor_ulam_pf(
-            F, box, bins_per_dim, max_rank
-        )
+        tt_operator, centers = tensor_ulam_pf(F, box, bins_per_dim, max_rank)
 
         # Compute spectral gap efficiently
         gap = spectral_gap_tt(tt_operator)
@@ -622,5 +569,5 @@ __all__ = [
     "tt_cross_approximation",
     "tensor_ulam_pf",
     "spectral_gap_tt",
-    "enhanced_ulam_pf"
+    "enhanced_ulam_pf",
 ]

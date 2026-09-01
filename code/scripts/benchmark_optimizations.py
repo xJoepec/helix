@@ -10,25 +10,26 @@ Usage:
 
 import argparse
 import json
+import sys
 import time
 import warnings
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 import numpy as np
-from pathlib import Path
-import sys
 
 # Add parent directory to path for helix imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Suppress warnings during benchmarking
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 @dataclass
 class BenchmarkResult:
     """Container for benchmark results."""
+
     name: str
     time_original: float
     time_optimized: float
@@ -51,45 +52,52 @@ class BenchmarkSuite:
         import sys
 
         info = {
-            'platform': platform.system(),
-            'machine': platform.machine(),
-            'processor': platform.processor(),
-            'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "platform": platform.system(),
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+            "python_version": (
+                f"{sys.version_info.major}.{sys.version_info.minor}."
+                f"{sys.version_info.micro}"
+            ),
         }
 
         # Check for optimization libraries
         try:
             import numba
-            info['numba'] = numba.__version__
+
+            info["numba"] = numba.__version__
         except ImportError:
-            info['numba'] = 'not installed'
+            info["numba"] = "not installed"
 
         try:
             import joblib
-            info['joblib'] = joblib.__version__
+
+            info["joblib"] = joblib.__version__
         except ImportError:
-            info['joblib'] = 'not installed'
+            info["joblib"] = "not installed"
 
         try:
             import scipy
-            info['scipy'] = scipy.__version__
+
+            info["scipy"] = scipy.__version__
         except ImportError:
-            info['scipy'] = 'not installed'
+            info["scipy"] = "not installed"
 
         # Check BLAS configuration
         try:
             import numpy as np
-            config_str = str(np.show_config(mode='dicts'))
-            if 'accelerate' in config_str.lower():
-                info['blas'] = 'accelerate'
-            elif 'mkl' in config_str.lower():
-                info['blas'] = 'mkl'
-            elif 'openblas' in config_str.lower():
-                info['blas'] = 'openblas'
+
+            config_str = str(np.show_config(mode="dicts"))
+            if "accelerate" in config_str.lower():
+                info["blas"] = "accelerate"
+            elif "mkl" in config_str.lower():
+                info["blas"] = "mkl"
+            elif "openblas" in config_str.lower():
+                info["blas"] = "openblas"
             else:
-                info['blas'] = 'generic'
+                info["blas"] = "generic"
         except Exception:
-            info['blas'] = 'unknown'
+            info["blas"] = "unknown"
 
         return info
 
@@ -133,14 +141,12 @@ class BenchmarkSuite:
 
                     # Original implementation
                     time_orig = self.time_function(
-                        ulam_pf, test_func, box, bins,
-                        samples_per_cell=10, use_vectorized=False
+                        ulam_pf, test_func, box, bins, samples_per_cell=10, use_vectorized=False
                     )
 
                     # Optimized implementation
                     time_opt = self.time_function(
-                        ulam_pf, test_func, box, bins,
-                        samples_per_cell=10, use_vectorized=True
+                        ulam_pf, test_func, box, bins, samples_per_cell=10, use_vectorized=True
                     )
 
                     speedup = time_orig / time_opt
@@ -150,8 +156,8 @@ class BenchmarkSuite:
                         time_original=time_orig,
                         time_optimized=time_opt,
                         speedup=speedup,
-                        parameters={'dimensions': d, 'bins_per_dim': bins},
-                        platform_info=self.platform_info
+                        parameters={"dimensions": d, "bins_per_dim": bins},
+                        platform_info=self.platform_info,
                     )
                     self.results.append(result)
 
@@ -193,8 +199,8 @@ class BenchmarkSuite:
                     time_original=time_orig,
                     time_optimized=time_opt,
                     speedup=speedup,
-                    parameters={'matrix_size': size},
-                    platform_info=self.platform_info
+                    parameters={"matrix_size": size},
+                    platform_info=self.platform_info,
                 )
                 self.results.append(result)
 
@@ -247,9 +253,7 @@ class BenchmarkSuite:
                     )
 
                     # Optimized implementation
-                    time_opt = self.time_function(
-                        extract_partitions, model, X, use_vectorized=True
-                    )
+                    time_opt = self.time_function(extract_partitions, model, X, use_vectorized=True)
 
                     speedup = time_orig / time_opt
 
@@ -258,8 +262,8 @@ class BenchmarkSuite:
                         time_original=time_orig,
                         time_optimized=time_opt,
                         speedup=speedup,
-                        parameters={'n_samples': n_samples, 'width': width},
-                        platform_info=self.platform_info
+                        parameters={"n_samples": n_samples, "width": width},
+                        platform_info=self.platform_info,
                     )
                     self.results.append(result)
 
@@ -294,14 +298,12 @@ class BenchmarkSuite:
 
                     # Original (no parallelization/batching)
                     time_orig = self.time_function(
-                        tt_cross_approximation, test_func, shape,
-                        use_parallel=False, batch_size=1
+                        tt_cross_approximation, test_func, shape, use_parallel=False, batch_size=1
                     )
 
                     # Optimized (with batching)
                     time_opt = self.time_function(
-                        tt_cross_approximation, test_func, shape,
-                        use_parallel=False, batch_size=100
+                        tt_cross_approximation, test_func, shape, use_parallel=False, batch_size=100
                     )
 
                     speedup = time_orig / time_opt
@@ -311,8 +313,8 @@ class BenchmarkSuite:
                         time_original=time_orig,
                         time_optimized=time_opt,
                         speedup=speedup,
-                        parameters={'dimensions': d, 'size_per_dim': s},
-                        platform_info=self.platform_info
+                        parameters={"dimensions": d, "size_per_dim": s},
+                        platform_info=self.platform_info,
                     )
                     self.results.append(result)
 
@@ -346,8 +348,8 @@ class BenchmarkSuite:
                 time_original=time_matmul,
                 time_optimized=time_matmul,
                 speedup=1.0,
-                parameters={'size': n, 'gflops': gflops},
-                platform_info=self.platform_info
+                parameters={"size": n, "gflops": gflops},
+                platform_info=self.platform_info,
             )
             self.results.append(result)
 
@@ -358,10 +360,10 @@ class BenchmarkSuite:
     def generate_summary(self) -> Dict[str, Any]:
         """Generate a summary of all benchmark results."""
         summary = {
-            'platform': self.platform_info,
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'results': [asdict(r) for r in self.results],
-            'aggregate_stats': {}
+            "platform": self.platform_info,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "results": [asdict(r) for r in self.results],
+            "aggregate_stats": {},
         }
 
         # Calculate aggregate statistics
@@ -373,15 +375,15 @@ class BenchmarkSuite:
                 speedups_by_test[result.name].append(result.speedup)
 
             for test_name, speedups in speedups_by_test.items():
-                summary['aggregate_stats'][test_name] = {
-                    'mean_speedup': np.mean(speedups),
-                    'median_speedup': np.median(speedups),
-                    'min_speedup': np.min(speedups),
-                    'max_speedup': np.max(speedups),
+                summary["aggregate_stats"][test_name] = {
+                    "mean_speedup": np.mean(speedups),
+                    "median_speedup": np.median(speedups),
+                    "min_speedup": np.min(speedups),
+                    "max_speedup": np.max(speedups),
                 }
 
-            summary['overall_mean_speedup'] = np.mean([r.speedup for r in self.results])
-            summary['overall_median_speedup'] = np.median([r.speedup for r in self.results])
+            summary["overall_mean_speedup"] = np.mean([r.speedup for r in self.results])
+            summary["overall_median_speedup"] = np.median([r.speedup for r in self.results])
 
         return summary
 
@@ -392,17 +394,17 @@ class BenchmarkSuite:
         summary = self.generate_summary()
 
         print("\nPlatform Information:")
-        for key, value in summary['platform'].items():
+        for key, value in summary["platform"].items():
             print(f"  {key}: {value}")
 
         print("\nAggregate Results by Test:")
-        for test_name, stats in summary['aggregate_stats'].items():
+        for test_name, stats in summary["aggregate_stats"].items():
             print(f"\n{test_name}:")
             print(f"  Mean speedup: {stats['mean_speedup']:.2f}x")
             print(f"  Median speedup: {stats['median_speedup']:.2f}x")
             print(f"  Range: {stats['min_speedup']:.2f}x - {stats['max_speedup']:.2f}x")
 
-        if 'overall_mean_speedup' in summary:
+        if "overall_mean_speedup" in summary:
             print("\nOverall Performance:")
             print(f"  Mean speedup: {summary['overall_mean_speedup']:.2f}x")
             print(f"  Median speedup: {summary['overall_median_speedup']:.2f}x")
@@ -410,14 +412,14 @@ class BenchmarkSuite:
     def save_results(self, filename: str):
         """Save benchmark results to JSON file."""
         summary = self.generate_summary()
-        with open(filename, 'w') as f:
+        with open(filename, "w") as f:
             json.dump(summary, f, indent=2)
         print(f"\nResults saved to {filename}")
 
     def compare_with_baseline(self, baseline_file: str):
         """Compare current results with a baseline."""
         try:
-            with open(baseline_file, 'r') as f:
+            with open(baseline_file, "r") as f:
                 baseline = json.load(f)
 
             self.print_header("Comparison with Baseline")
@@ -425,9 +427,9 @@ class BenchmarkSuite:
             current = self.generate_summary()
 
             # Compare overall speedups
-            if 'overall_mean_speedup' in current and 'overall_mean_speedup' in baseline:
-                current_speedup = current['overall_mean_speedup']
-                baseline_speedup = baseline['overall_mean_speedup']
+            if "overall_mean_speedup" in current and "overall_mean_speedup" in baseline:
+                current_speedup = current["overall_mean_speedup"]
+                baseline_speedup = baseline["overall_mean_speedup"]
                 improvement = (current_speedup - baseline_speedup) / baseline_speedup * 100
 
                 print("\nOverall Performance Change:")
@@ -437,10 +439,10 @@ class BenchmarkSuite:
 
             # Compare by test
             print("\nPer-Test Comparison:")
-            for test_name in current['aggregate_stats']:
-                if test_name in baseline.get('aggregate_stats', {}):
-                    curr_mean = current['aggregate_stats'][test_name]['mean_speedup']
-                    base_mean = baseline['aggregate_stats'][test_name]['mean_speedup']
+            for test_name in current["aggregate_stats"]:
+                if test_name in baseline.get("aggregate_stats", {}):
+                    curr_mean = current["aggregate_stats"][test_name]["mean_speedup"]
+                    base_mean = baseline["aggregate_stats"][test_name]["mean_speedup"]
                     change = (curr_mean - base_mean) / base_mean * 100
                     print(f"  {test_name}: {base_mean:.2f}x → {curr_mean:.2f}x ({change:+.1f}%)")
 
@@ -452,26 +454,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Comprehensive benchmark suite for Helix optimizations"
     )
-    parser.add_argument(
-        '--save-results',
-        type=str,
-        help='Save results to JSON file'
-    )
-    parser.add_argument(
-        '--compare-with',
-        type=str,
-        help='Compare with baseline results file'
-    )
-    parser.add_argument(
-        '--quick',
-        action='store_true',
-        help='Run quick benchmarks only'
-    )
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Minimal output'
-    )
+    parser.add_argument("--save-results", type=str, help="Save results to JSON file")
+    parser.add_argument("--compare-with", type=str, help="Compare with baseline results file")
+    parser.add_argument("--quick", action="store_true", help="Run quick benchmarks only")
+    parser.add_argument("--quiet", action="store_true", help="Minimal output")
 
     args = parser.parse_args()
 

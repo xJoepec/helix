@@ -7,11 +7,11 @@ name = "helix"
 version = "0.1.0"
 description = "Operator-algebraic diagnostics for deep nets (AF partitions, CP maps, Ulam PF)."
 readme = "README.md"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.11,<3.14"
 authors = [
   { name = "Project Helix" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
   "numpy>=1.23",
   "torch>=2.0",
@@ -19,7 +19,6 @@ dependencies = [
 keywords = ["operator-algebras", "machine-learning", "diagnostics", "AF", "CP maps", "Ulam"]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
 
@@ -67,6 +66,11 @@ full = [
   "toml>=0.10",
 ]
 
+helixenv = [
+  "datasets",
+  "verifiers>=0.1.3.post0",
+]
+
 tui = [
   "textual>=0.58",
   "platformdirs>=4.0",  # cross-platform config directory support
@@ -95,20 +99,33 @@ helix = "helix.cli:main"
 helix-tui = "helix.tui:main"
 
 [tool.setuptools]
-package-dir = {"" = "code"}
 include-package-data = true
+packages = [
+  "helix",
+  "helix.architectures",
+  "helix.integrations",
+  "environments",
+  "environments.helixenv",
+  "environments.helixenv.af_partition",
+  "environments.helixenv.cp_dilation",
+  "environments.helixenv.ulam_flow",
+  "environments.ktheory",
+]
 
-[tool.setuptools.packages.find]
-where = ["code"]
-include = ["helix*"]
+[tool.setuptools.package-dir]
+helix = "code/helix"
+environments = "environments"
 
 [tool.setuptools.package-data]
 "helix" = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = []
+
+[tool.pytest.ini_options]
+pythonpath = [".", "code"]

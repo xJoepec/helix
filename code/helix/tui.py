@@ -234,7 +234,9 @@ def _ensure_tui_class():
         return HelixTUI
 
     if not _has_textual():
-        raise ImportError("Textual is not installed. Install Helix TUI extras: pip install '.[tui]'")
+        raise ImportError(
+            "Textual is not installed. Install Helix TUI extras: pip install '.[tui]'"
+        )
 
     from textual import on
     from textual.app import App, ComposeResult
@@ -298,7 +300,9 @@ def _ensure_tui_class():
 
     class HelixTUI(App):
         # Use our comprehensive theme CSS
-        CSS = generate_css() + """
+        CSS = (
+            generate_css()
+            + """
         /* Additional TUI-specific styles */
         Screen {
             layout: vertical;
@@ -370,6 +374,7 @@ def _ensure_tui_class():
             margin: 0 1;
         }
         """
+        )
         BINDINGS = [
             ("r", "run", "Run"),
             ("c", "cancel", "Cancel"),
@@ -413,38 +418,26 @@ def _ensure_tui_class():
                         with Vertical(classes="input-group"):
                             with Horizontal():
                                 yield Input(
-                                    str(self.params["samples"]),
-                                    placeholder="samples",
-                                    id="samples"
+                                    str(self.params["samples"]), placeholder="samples", id="samples"
                                 )
                                 yield Input(
-                                    str(self.params["noise"]),
-                                    placeholder="noise",
-                                    id="noise"
+                                    str(self.params["noise"]), placeholder="noise", id="noise"
                                 )
-                                yield Input(
-                                    str(self.params["seed"]),
-                                    placeholder="seed",
-                                    id="seed"
-                                )
+                                yield Input(str(self.params["seed"]), placeholder="seed", id="seed")
 
                         yield SectionHeader("Model Architecture")
                         with Vertical(classes="input-group"):
                             with Horizontal():
                                 yield Input(
-                                    str(self.params["width"]),
-                                    placeholder="width",
-                                    id="width"
+                                    str(self.params["width"]), placeholder="width", id="width"
                                 )
                                 yield Input(
-                                    str(self.params["epochs"]),
-                                    placeholder="epochs",
-                                    id="epochs"
+                                    str(self.params["epochs"]), placeholder="epochs", id="epochs"
                                 )
                                 yield Switch(
                                     value=bool(self.params["no_train"]),
                                     id="no_train",
-                                    name="no_train"
+                                    name="no_train",
                                 )
                                 yield Label("Skip Training")
 
@@ -452,18 +445,26 @@ def _ensure_tui_class():
                         with Vertical(classes="input-group"):
                             with Horizontal():
                                 yield Input(
-                                    str(self.params["ulam_bins"]), placeholder="ulam_bins", id="ulam_bins"
+                                    str(self.params["ulam_bins"]),
+                                    placeholder="ulam_bins",
+                                    id="ulam_bins",
                                 )
                                 yield Input(
                                     str(self.params["ulam_samples_per_cell"]),
                                     placeholder="ulam_samples_per_cell",
                                     id="ulam_samples_per_cell",
                                 )
-                                yield Input(str(self.params["ulam_eps"]), placeholder="ulam_eps", id="ulam_eps")
+                                yield Input(
+                                    str(self.params["ulam_eps"]),
+                                    placeholder="ulam_eps",
+                                    id="ulam_eps",
+                                )
 
                         yield SectionHeader("Analysis Features")
                         with Horizontal(classes="checkbox-group"):
-                            yield Checkbox("Region growth", value=self.which["regions"], id="regions")
+                            yield Checkbox(
+                                "Region growth", value=self.which["regions"], id="regions"
+                            )
                             yield Checkbox("Mass consistency", value=self.which["mass"], id="mass")
                             yield Checkbox("CP checks", value=self.which["cp"], id="cp")
                             yield Checkbox("Ulam mixing", value=self.which["ulam"], id="ulam")
@@ -474,10 +475,22 @@ def _ensure_tui_class():
                         with Horizontal(id="buttons"):
                             with ButtonGroup(group_type="actions"):
                                 yield ThemedButton("▶ Run", button_type="primary", id="run")
-                                yield ThemedButton("■ Cancel", button_type="danger", id="cancel", disabled=True)
+                                yield ThemedButton(
+                                    "■ Cancel", button_type="danger", id="cancel", disabled=True
+                                )
                             with ButtonGroup(group_type="export"):
-                                yield ThemedButton("📄 Export JSON", button_type="secondary", id="export", disabled=True)
-                                yield ThemedButton("📊 Export CSV", button_type="secondary", id="export_csv", disabled=True)
+                                yield ThemedButton(
+                                    "📄 Export JSON",
+                                    button_type="secondary",
+                                    id="export",
+                                    disabled=True,
+                                )
+                                yield ThemedButton(
+                                    "📊 Export CSV",
+                                    button_type="secondary",
+                                    id="export_csv",
+                                    disabled=True,
+                                )
                             with ButtonGroup(group_type="config"):
                                 yield ThemedButton("💾 Save", id="save")
                                 yield ThemedButton("↺ Reset", id="reset")
@@ -568,8 +581,12 @@ def _ensure_tui_class():
             self.query_one("#run", ThemedButton).disabled = running
             self.query_one("#cancel", ThemedButton).disabled = not running
             # Export enabled only when we have metrics and not running
-            self.query_one("#export", ThemedButton).disabled = running or (self._last_metrics is None)
-            self.query_one("#export_csv", ThemedButton).disabled = running or (self._last_metrics is None)
+            self.query_one("#export", ThemedButton).disabled = running or (
+                self._last_metrics is None
+            )
+            self.query_one("#export_csv", ThemedButton).disabled = running or (
+                self._last_metrics is None
+            )
 
         def _progress(self, msg: str) -> None:
             bar = self.query_one("#progress", ProgressBar)
@@ -645,15 +662,17 @@ def _ensure_tui_class():
             from textual.worker import WorkerState
 
             # Check if this is our analysis worker
-            if hasattr(self, '_analysis_worker') and event.worker is self._analysis_worker:
+            if hasattr(self, "_analysis_worker") and event.worker is self._analysis_worker:
                 if event.state == WorkerState.SUCCESS:
                     # Call the done callback with the worker result
-                    if hasattr(self, '_analysis_done_callback'):
+                    if hasattr(self, "_analysis_done_callback"):
                         self._analysis_done_callback(event.worker.result)
                 elif event.state == WorkerState.ERROR:
                     # Handle error
                     self._set_running(False)
-                    self.query_one("#logbox", RichLog).write_error(f"Analysis failed: {event.worker.error}")
+                    self.query_one("#logbox", RichLog).write_error(
+                        f"Analysis failed: {event.worker.error}"
+                    )
                 elif event.state == WorkerState.CANCELLED:
                     # Already handled in action_cancel
                     pass
@@ -903,8 +922,12 @@ def _ensure_tui_class():
                 self.query_one("#logbox", RichLog).write_success(f"📊 Exported {p}")
 
         def _populate_tables(self, res: Dict[str, Any]) -> None:
-            def setup(dt: ThemedDataTable, cols: List[str], rows: List[List[Any]],
-                     col_styles: Optional[List[Optional[str]]] = None) -> None:
+            def setup(
+                dt: ThemedDataTable,
+                cols: List[str],
+                rows: List[List[Any]],
+                col_styles: Optional[List[Optional[str]]] = None,
+            ) -> None:
                 dt.clear(columns=True)
 
                 # Add columns with optional styling

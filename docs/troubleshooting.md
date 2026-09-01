@@ -18,7 +18,7 @@ This guide helps resolve common issues when using Helix.
 2. **Recommended - Install with Helix extras:**
    ```bash
    # Install with PyTorch and visualization tools
-   pip install -e .[torch,viz]
+   pip install -e '.[viz]'
 
    # Or install everything
    pip install -e .[full]

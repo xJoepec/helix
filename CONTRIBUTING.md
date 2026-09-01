@@ -1,7 +1,7 @@
 # Contributing
 
 Setup
-- Python 3.10+
+- Python 3.11+
 - Create a venv and install editable: `pip install -e .[dev]` (ruff/pytest)
 - Optional extras: `torch`, `sympy`, `matplotlib`
 

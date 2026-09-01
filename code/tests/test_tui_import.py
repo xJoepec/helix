@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-# Ensure the 'code' directory (package root for 'helix') is on sys.path
-PKG_ROOT = os.path.dirname(os.path.dirname(__file__))
-if PKG_ROOT not in sys.path:
-    sys.path.insert(0, PKG_ROOT)
+from unittest.mock import patch
 
 
 class TestTUIImport(unittest.TestCase):
     def test_run_tui_missing_textual(self):
-        # This environment likely doesn't have textual installed.
-        # The TUI runner should return non-zero and print a hint.
         from helix import tui
 
-        rc = tui.run_tui([])
-        self.assertIn(rc, (0, 1))  # allow 0 if textual is present
+        with (
+            patch("builtins.print") as mock_print,
+            patch.object(tui, "_ensure_tui_class", side_effect=ImportError("textual")),
+        ):
+            rc = tui.run_tui([])
+
+        self.assertEqual(rc, 1)
+        mock_print.assert_called_once_with(
+            "Textual is not installed. Install Helix TUI extras: pip install '.[tui]'"
+        )
 
 
 if __name__ == "__main__":

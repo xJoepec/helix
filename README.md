@@ -40,7 +40,7 @@ Each diagnostic is optional yet composable: start with AF partitions, layer in C
 
 ## Installation & Requirements
 
-Helix targets Python 3.10+. A virtual environment is strongly recommended.
+Helix targets Python 3.11+. A virtual environment is strongly recommended.
 
 ```bash
 python3 -m venv .venv
@@ -48,23 +48,53 @@ source .venv/bin/activate
 python3 -m pip install -U pip
 
 # Choose the feature set that matches your workflow:
-python3 -m pip install -e .                # Minimal API (partition extraction only)
-python3 -m pip install -e .[torch,viz]     # CLI + plotting (PyTorch + matplotlib)
+python3 -m pip install -e .                # Core API + PyTorch
+python3 -m pip install -e '.[viz]'         # CLI + plotting (matplotlib)
 python3 -m pip install -e .[tui]           # TUI interface (textual, rich)
-python3 -m pip install -e .[full]          # Everything: torch, viz, tui, topology
+python3 -m pip install -e '.[full]'        # Everything: viz, tui, topology
 ```
 
-> **PyTorch is required** for the demo, CLI analysis, and most environments. Install `torch` separately if you pick the minimal target.
+> **PyTorch is a core dependency** for the demo, CLI analysis, and most environments.
 
 ---
 
 ## Run Helix Three Ways
+
+### Unsloth Studio monitoring
+
+Observe a local Unsloth Studio run without loading a second model or mutating Studio. The default auth mode
+uses keyless loopback GET requests when no token is configured; provide `UNSLOTH_STUDIO_TOKEN` (or the
+in-memory `--studio-token` flag) when Studio requires bearer authentication:
+
+```bash
+helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+UNSLOTH_STUDIO_TOKEN=... helix grok-watch --studio-auth bearer --once --json
+```
+
+See [`docs/grok-watch.md`](docs/grok-watch.md) for the loopback and GPU-safety contract.
+
+This is telemetry and phase-detection groundwork, not a calibrated grok-watch claim. Reproduce the
+repository checks without contacting Studio by running:
+
+```bash
+uv run python scripts/validate_pr.py
+```
+
+Live validation is deliberately separate and remains the explicit read-only command:
+
+```bash
+uv run helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+```
+
+Calibrated grok-watch claims require future behavioral probes.
 
 ### 1. Interactive Menu (on-ramp)
 
 ```bash
 ./helix
 ```
+
+On Windows, use `helix.cmd` from PowerShell or Command Prompt.
 
 Options include:
 
@@ -170,7 +200,9 @@ Head to `docs/getting-started.md` for a narrated walk-through of these interpret
 Helix's operator-algebraic view generalizes beyond "why did my classifier fail?" Here are a few highlights drawn from `uses.md`:
 
 1. **Model provenance.** K-theory invariants (K₀/K₁ via Smith normal forms of `I - Bᵀ` from `helix.ktheory`) act as fingerprints for detecting derived/fine-tuned models.
-2. **Phase transition alerts in LLMs.** Track Ulam spectral gaps across checkpoints (optionally with tensor-train Ulam) to spot emergent capability jumps before they appear in evals.
+2. **Temporal telemetry for LLM checkpoint studies.** Collect read-only, run-scoped checkpoint telemetry and
+   phase-distance candidates for future analysis. This is telemetry/phase-detection groundwork, not a calibrated
+   grok-watch claim; see the [validation and claims caveat](docs/grok-watch.md#reproducible-validation-and-claims).
 3. **Quantum-inspired compression.** Navigate Morita-equivalent AF algebras to identify thinner networks that preserve computational structure; exploit sparse partition stats to guide pruning.
 4. **Market microstructure discovery.** Partition extraction plus τ consistency and anisotropy metrics uncovers changing liquidity regimes in trading models.
 5. **Adversarial robustness certification.** Coisometry errors bound perturbation amplification; small ‖V V* − I‖_F becomes a certifiable robustness criterion for residual stacks.
@@ -221,7 +253,7 @@ Treat the README as the map; the docs are the textbook.
 - `environments/` — External evaluation harnesses (`helixenv`, `ktheory`).
 - `ascii-animations/` — ANSI frames for CLI banners.
 - `docs/` — Complete documentation set described above.
-- `./helix` — Convenience launcher so you can run the CLI directly from the repo.
+- `./helix` / `helix.cmd` — Repo launchers for Unix and Windows.
 
 ---
 
@@ -232,12 +264,10 @@ Treat the README as the map; the docs are the textbook.
 - Before sending changes:
 
   ```bash
-  ruff check .
-  pytest -q
+  uv run python scripts/validate_pr.py
   ```
 
 - Never break `env_api.py`; external agents depend on it.
-- See `CLAUDE.md` for a detailed assistant/developer playbook.
 
 ---
 

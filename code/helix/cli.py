@@ -76,11 +76,13 @@ def _ensure_repo_root_on_path() -> Path:
 def _import_af_partition_env():
     try:
         from environments.helixenv.af_partition.env import AFPartitionEnv
+
         return AFPartitionEnv
     except ModuleNotFoundError as exc:
         _ensure_repo_root_on_path()
         try:
             from environments.helixenv.af_partition.env import AFPartitionEnv
+
             return AFPartitionEnv
         except ModuleNotFoundError:
             raise ModuleNotFoundError(
@@ -336,7 +338,7 @@ def _supports_color() -> bool:
 def _oklch_to_rgb(lightness: float, chroma: float, hue: float) -> Tuple[int, int, int]:
     """
     Convert OKLCH color to RGB (0-255 range).
-    
+
     OKLCH is LCH in the OKLab color space, which is perceptually uniform.
     Conversion: OKLCH -> OKLab -> Linear RGB -> sRGB
     """
@@ -345,38 +347,38 @@ def _oklch_to_rgb(lightness: float, chroma: float, hue: float) -> Tuple[int, int
     h_rad = math.radians(hue)
     a = chroma * math.cos(h_rad)
     b = chroma * math.sin(h_rad)
-    
+
     # OKLab to linear RGB matrix (inverse of OKLab transformation)
     # Using the standard OKLab to linear RGB conversion
     l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
     m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
     s_ = lightness - 0.0894841775 * a - 1.2914855480 * b
-    
+
     # Apply non-linearity
     l_ = l_ * l_ * l_
     m_ = m_ * m_ * m_
     s_ = s_ * s_ * s_
-    
+
     # Linear RGB
     r = +4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_
     g = -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_
     b_val = -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_
-    
+
     # Apply sRGB gamma correction
     def srgb_gamma(x: float) -> float:
         if x <= 0.0031308:
             return 12.92 * x
         return 1.055 * (x ** (1.0 / 2.4)) - 0.055
-    
+
     r = srgb_gamma(r)
     g = srgb_gamma(g)
     b_val = srgb_gamma(b_val)
-    
+
     # Clamp and convert to 0-255 range
     r = max(0, min(255, int(round(r * 255))))
     g = max(0, min(255, int(round(g * 255))))
     b_val = max(0, min(255, int(round(b_val * 255))))
-    
+
     return (r, g, b_val)
 
 
@@ -897,11 +899,13 @@ def _maybe_print_model_summary(model: nn.Module, input_shape: Optional[Tuple[int
     summary_kind = ""
     try:
         from torchinfo import summary as torchinfo_summary  # type: ignore
+
         summary_fn = torchinfo_summary
         summary_kind = "torchinfo"
     except Exception:
         try:
             from torchsummary import summary as torchsummary_summary  # type: ignore
+
             summary_fn = torchsummary_summary
             summary_kind = "torchsummary"
         except Exception:
@@ -977,8 +981,7 @@ def _render_neuron_panel(
             if span <= 0:
                 span = max(2, height - 2)
             y_positions = [
-                top_margin + int(round(idx * span / (node_count - 1)))
-                for idx in range(node_count)
+                top_margin + int(round(idx * span / (node_count - 1))) for idx in range(node_count)
             ]
         layer_nodes: List[Dict[str, float]] = []
         base_activity = activities[layer_idx]
@@ -1027,9 +1030,7 @@ def _render_neuron_panel(
             targets = sorted_targets[:target_count]
             for dst_idx, dst in enumerate(targets):
                 strength = 0.5 * (src["level"] + dst["level"])
-                phase_seed = (
-                    pulse_phase + 0.2 * layer_idx + 0.07 * src_idx + 0.03 * dst_idx
-                )
+                phase_seed = pulse_phase + 0.2 * layer_idx + 0.07 * src_idx + 0.03 * dst_idx
                 _plot_edge(
                     int(src["x"]),
                     int(src["y"]),
@@ -1407,6 +1408,8 @@ def _neuron_extra_lines(
         if not math.isnan(gap_float):
             extras.append(f"spectral gap={gap_float:.4f}")
     return extras
+
+
 def _colorize_frame(frame: str) -> str:
     lines = frame.splitlines()
     if not _supports_color():
@@ -1645,9 +1648,8 @@ def _print_helixenv_config(
         demo_summary += f" (labels={_short_path(args.data_y)})"
 
     if getattr(args, "model_module", ""):
-        model_summary = (
-            f"builder={_short_path(args.model_module)}::{args.model_func}"
-            + (f" kwargs={args.model_kwargs}" if args.model_kwargs else "")
+        model_summary = f"builder={_short_path(args.model_module)}::{args.model_func}" + (
+            f" kwargs={args.model_kwargs}" if args.model_kwargs else ""
         )
     else:
         widths_display = getattr(args, "widths", "") or "16,16,16,16"
@@ -1659,8 +1661,12 @@ def _print_helixenv_config(
 
     train_summary = "skipped" if getattr(args, "no_train", False) else f"epochs={args.epochs}"
 
-    ulam_summary = "disabled" if getattr(args, "no_ulam", False) else (
-        f"bins={args.ulam_bins}, samples/cell={args.ulam_samples_per_cell}, eps={args.ulam_eps}"
+    ulam_summary = (
+        "disabled"
+        if getattr(args, "no_ulam", False)
+        else (
+            f"bins={args.ulam_bins}, samples/cell={args.ulam_samples_per_cell}, eps={args.ulam_eps}"
+        )
     )
 
     rewards_summary = (
@@ -2370,9 +2376,7 @@ def _interactive_collect_helix_args() -> argparse.Namespace:
     noise = _prompt_float("Demo noise level", 0.08)
     seed = _prompt_int("Random seed", 1)
     while True:
-        widths_csv = _prompt_text(
-            "Hidden layer widths (comma separated)", "16,16,16,16"
-        ).strip()
+        widths_csv = _prompt_text("Hidden layer widths (comma separated)", "16,16,16,16").strip()
         try:
             parsed_widths = _parse_widths_csv(widths_csv)
         except ValueError as exc:
@@ -2449,6 +2453,7 @@ def run_helixenv_overview(args: Optional[argparse.Namespace] = None) -> int:
 
     try:
         from environments.helixenv.af_partition.dataset import build_af_examples
+
         examples = build_af_examples()
     except RuntimeError as e:
         # Handle missing PyTorch gracefully
@@ -2734,7 +2739,7 @@ def _interpret_relu_partitions(regions: int, entropy: float) -> Dict[str, str]:
     return {
         "status": status,
         "message": " • ".join(messages) if messages else "Partition analysis complete",
-        "action": " • ".join(actions) if actions else "No changes recommended"
+        "action": " • ".join(actions) if actions else "No changes recommended",
     }
 
 
@@ -2753,7 +2758,9 @@ def _interpret_cp_flow(trace_gap: float, entropy_out: float) -> Dict[str, str]:
         actions.append("Check for vanishing activations")
     elif trace_gap >= _TRACE_GAP_WARNING:
         status = "warning"
-        messages.append(f"Moderate information loss (gap = {trace_gap:.3f} >= {_TRACE_GAP_WARNING})")
+        messages.append(
+            f"Moderate information loss (gap = {trace_gap:.3f} >= {_TRACE_GAP_WARNING})"
+        )
         messages.append("Noticeable compression through this layer")
         actions.append("Consider: Add residual connections to preserve information")
         actions.append("Or: Widen bottleneck layers")
@@ -2762,7 +2769,9 @@ def _interpret_cp_flow(trace_gap: float, entropy_out: float) -> Dict[str, str]:
         messages.append("Acceptable compression level")
         actions.append("Monitor: Ensure task doesn't require lost information")
     else:
-        messages.append(f"Excellent information preservation (gap = {trace_gap:.3f} < {_TRACE_GAP_GOOD})")
+        messages.append(
+            f"Excellent information preservation (gap = {trace_gap:.3f} < {_TRACE_GAP_GOOD})"
+        )
         actions.append("Information flow is optimal")
 
     # Analyze output entropy (compression quality)
@@ -2779,7 +2788,7 @@ def _interpret_cp_flow(trace_gap: float, entropy_out: float) -> Dict[str, str]:
     return {
         "status": status,
         "message": " • ".join(messages) if messages else "Information flow analysis complete",
-        "action": " • ".join(actions) if actions else "No changes recommended"
+        "action": " • ".join(actions) if actions else "No changes recommended",
     }
 
 
@@ -2826,7 +2835,7 @@ def _interpret_spectral_gaps(min_gap: float, max_gap: float) -> Dict[str, str]:
     return {
         "status": status,
         "message": " • ".join(messages) if messages else "Spectral gap analysis complete",
-        "action": " • ".join(actions) if actions else "No changes recommended"
+        "action": " • ".join(actions) if actions else "No changes recommended",
     }
 
 
@@ -2873,17 +2882,13 @@ def _interpret_numerical_health(mass_avg: float, trace_avg: float) -> Dict[str, 
     return {
         "status": status,
         "message": " • ".join(messages) if messages else "Numerical health check complete",
-        "action": " • ".join(actions) if actions else "System is numerically stable"
+        "action": " • ".join(actions) if actions else "System is numerically stable",
     }
 
 
 def _format_interpretation(status: str, message: str, action: str) -> str:
     """Format interpretation with status symbols and proper indentation."""
-    symbol_map = {
-        "good": "✓",
-        "warning": "⚠",
-        "critical": "✗"
-    }
+    symbol_map = {"good": "✓", "warning": "⚠", "critical": "✗"}
     symbol = symbol_map.get(status, "•")
 
     lines = []
@@ -2946,6 +2951,7 @@ def run_interactive() -> int:
     """Run the interactive menu system."""
     # Suppress warnings during interactive mode to prevent display corruption
     import warnings
+
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     warnings.filterwarnings("ignore", message="urllib3")
 
@@ -2988,7 +2994,6 @@ def run_interactive() -> int:
                     columns = menu_width
                 return max(1, min(menu_width, columns))
 
-
             stop_event: Optional[threading.Event] = None
             animation_paused: Optional[threading.Event] = None
             ready_event: Optional[threading.Event] = None
@@ -3027,9 +3032,7 @@ def run_interactive() -> int:
                         _error("Terminal window too small for interactive mode."),
                     ]
                     notice_lines.append(
-                        _subtle(
-                            f"Need at least {required_cols} cols x {required_rows} rows."
-                        )
+                        _subtle(f"Need at least {required_cols} cols x {required_rows} rows.")
                     )
                     notice_lines.append(
                         _subtle(f"Current size: {actual_cols} cols x {actual_rows} rows.")
@@ -3059,7 +3062,6 @@ def run_interactive() -> int:
                 while not _check_terminal_space(show_notice=True):
                     time.sleep(0.1)
 
-
             def _format_menu_item(idx: int) -> str:
                 item = menu_items[idx]
                 if not (use_arrow_keys and idx == selected_idx):
@@ -3076,6 +3078,7 @@ def run_interactive() -> int:
                     draw_width = _current_draw_width()
                     # Redraw our block in place without clearing the whole screen
                     row = 1
+
                     def _pos(r: int) -> None:
                         sys.stdout.write(f"\x1b[{r};1H")
                         sys.stdout.write("\x1b[2K")
@@ -3463,9 +3466,7 @@ def _load_array(path: str, *, allow_pickle: bool = False) -> np.ndarray:
                 "Rerun with --allow-pickled-arrays or set "
                 "HELIX_ALLOW_PICKLED_ARRAYS=1 if you trust the file."
             )
-            raise ValueError(
-                f"{loader} '{p}' requires pickle deserialisation. {hint}"
-            ) from exc
+            raise ValueError(f"{loader} '{p}' requires pickle deserialisation. {hint}") from exc
 
     if lower.endswith(".npy"):
         try:
@@ -3705,11 +3706,7 @@ def run_helix_env(args: argparse.Namespace) -> int:
     allow_pickled_weights = cli_pickled_weights or env_pickled_weights
 
     if cli_pickled_arrays:
-        print(
-            _subtle(
-                "--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."
-            )
-        )
+        print(_subtle("--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."))
     elif env_pickled_arrays:
         print(
             _subtle(
@@ -3717,11 +3714,7 @@ def run_helix_env(args: argparse.Namespace) -> int:
             )
         )
     if cli_pickled_weights:
-        print(
-            _subtle(
-                "--allow-pickled-weights: pickled checkpoint loading enabled for this run."
-            )
-        )
+        print(_subtle("--allow-pickled-weights: pickled checkpoint loading enabled for this run."))
     elif env_pickled_weights:
         print(
             _subtle(
@@ -3885,11 +3878,7 @@ def run_helix_env(args: argparse.Namespace) -> int:
         if computed_gap is not None:
             env.update_spectral_gaps([computed_gap] * len(env.levels))
         else:
-            print(
-                _subtle(
-                    "[warn] Ulam spectral gap unavailable; continuing without gap reward"
-                )
-            )
+            print(_subtle("[warn] Ulam spectral gap unavailable; continuing without gap reward"))
 
     _animate_banner(loops=1, fps=18.0)
     print(_subtle(_divider()))
@@ -4071,11 +4060,7 @@ def run_analyze(args: argparse.Namespace) -> int:
     allow_pickled_arrays = cli_pickled_arrays or env_pickled_arrays
     allow_pickled_weights = cli_pickled_weights or env_pickled_weights
     if cli_pickled_arrays:
-        print(
-            _subtle(
-                "--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."
-            )
-        )
+        print(_subtle("--allow-pickled-arrays: numpy pickle deserialisation enabled for this run."))
     elif env_pickled_arrays:
         print(
             _subtle(
@@ -4083,11 +4068,7 @@ def run_analyze(args: argparse.Namespace) -> int:
             )
         )
     if cli_pickled_weights:
-        print(
-            _subtle(
-                "--allow-pickled-weights: pickled checkpoint loading enabled for this run."
-            )
-        )
+        print(_subtle("--allow-pickled-weights: pickled checkpoint loading enabled for this run."))
     elif env_pickled_weights:
         print(
             _subtle(
@@ -4303,23 +4284,22 @@ def run_reveals_showcase(argv: List[str]) -> int:
     relu_ascii, relu_stats = _render_relu_partition_ascii(grid, seed)
     print("\n[ReLU partitions — AF refinement]")
     print(relu_ascii)
-    print(
-        f"regions: {relu_stats['regions']} • partition entropy: {relu_stats['entropy']:.2f} bits"
-    )
+    print(f"regions: {relu_stats['regions']} • partition entropy: {relu_stats['entropy']:.2f} bits")
     # Add interpretation
-    interp = _interpret_relu_partitions(relu_stats['regions'], relu_stats['entropy'])
-    print(_format_interpretation(interp['status'], interp['message'], interp['action']))
+    interp = _interpret_relu_partitions(relu_stats["regions"], relu_stats["entropy"])
+    print(_format_interpretation(interp["status"], interp["message"], interp["action"]))
 
     # Section 2: CP Maps
     cp_ascii, cp_stats = _render_cp_flow_ascii(seed)
     print("\n[Information flow — CP maps]")
     print(cp_ascii)
     print(
-        f"trace gap: {cp_stats['trace_gap']:.2e} • output entropy: {cp_stats['entropy_out']:.2f} bits"
+        f"trace gap: {cp_stats['trace_gap']:.2e} • "
+        f"output entropy: {cp_stats['entropy_out']:.2f} bits"
     )
     # Add interpretation
-    interp = _interpret_cp_flow(cp_stats['trace_gap'], cp_stats['entropy_out'])
-    print(_format_interpretation(interp['status'], interp['message'], interp['action']))
+    interp = _interpret_cp_flow(cp_stats["trace_gap"], cp_stats["entropy_out"])
+    print(_format_interpretation(interp["status"], interp["message"], interp["action"]))
 
     # Section 3: Spectral Gaps
     gap_ascii, gap_stats = _render_spectral_gap_ascii(seed)
@@ -4327,8 +4307,8 @@ def run_reveals_showcase(argv: List[str]) -> int:
     print(gap_ascii)
     print(f"min gap: {gap_stats['min_gap']:.3f} • max gap: {gap_stats['max_gap']:.3f}")
     # Add interpretation
-    interp = _interpret_spectral_gaps(gap_stats['min_gap'], gap_stats['max_gap'])
-    print(_format_interpretation(interp['status'], interp['message'], interp['action']))
+    interp = _interpret_spectral_gaps(gap_stats["min_gap"], gap_stats["max_gap"])
+    print(_format_interpretation(interp["status"], interp["message"], interp["action"]))
 
     # Section 4: Numerical Health
     resid_ascii, resid_stats = _render_residual_ascii(seed)
@@ -4340,10 +4320,9 @@ def run_reveals_showcase(argv: List[str]) -> int:
     )
     # Add interpretation
     interp = _interpret_numerical_health(
-        resid_stats['mass_residual_avg'],
-        resid_stats['trace_residual_avg']
+        resid_stats["mass_residual_avg"], resid_stats["trace_residual_avg"]
     )
-    print(_format_interpretation(interp['status'], interp['message'], interp['action']))
+    print(_format_interpretation(interp["status"], interp["message"], interp["action"]))
 
     return 0
 
@@ -4353,33 +4332,47 @@ def run_ktheory_analysis(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(description="Helix K-theory analysis")
 
     # Model specification
-    parser.add_argument("--model-module", type=str, default="",
-                       help="Path to Python file that defines a model builder")
-    parser.add_argument("--model-func", type=str, default="build_model",
-                       help="Builder function name in the module")
-    parser.add_argument("--weights", type=str, default="",
-                       help="Optional path to a state_dict .pt/.pth file")
+    parser.add_argument(
+        "--model-module",
+        type=str,
+        default="",
+        help="Path to Python file that defines a model builder",
+    )
+    parser.add_argument(
+        "--model-func", type=str, default="build_model", help="Builder function name in the module"
+    )
+    parser.add_argument(
+        "--weights", type=str, default="", help="Optional path to a state_dict .pt/.pth file"
+    )
 
     # Data specification
-    parser.add_argument("--data-x", type=str, required=True,
-                       help="Path to features array (.npy/.npz/.csv)")
-    parser.add_argument("--width", type=int, default=16,
-                       help="Hidden width for built-in MLP if used")
+    parser.add_argument(
+        "--data-x", type=str, required=True, help="Path to features array (.npy/.npz/.csv)"
+    )
+    parser.add_argument(
+        "--width", type=int, default=16, help="Hidden width for built-in MLP if used"
+    )
 
     # K-theory options
-    parser.add_argument("--method", type=str, default="hodge",
-                       choices=["hodge", "smith", "spectral"],
-                       help="K-theory computation method")
-    parser.add_argument("--tolerance", type=float, default=1e-10,
-                       help="Numerical tolerance for computation")
-    parser.add_argument("--max-depth", type=int, default=None,
-                       help="Maximum AF partition depth to analyze")
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="hodge",
+        choices=["hodge", "smith", "spectral"],
+        help="K-theory computation method",
+    )
+    parser.add_argument(
+        "--tolerance", type=float, default=1e-10, help="Numerical tolerance for computation"
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=None, help="Maximum AF partition depth to analyze"
+    )
 
     # Output options
-    parser.add_argument("--save-report", type=str, default="",
-                       help="Save detailed report to JSON file")
-    parser.add_argument("--plot", action="store_true",
-                       help="Generate plots of K-theory evolution")
+    parser.add_argument(
+        "--save-report", type=str, default="", help="Save detailed report to JSON file"
+    )
+    parser.add_argument("--plot", action="store_true", help="Generate plots of K-theory evolution")
 
     args = parser.parse_args(argv)
 
@@ -4394,16 +4387,18 @@ def run_ktheory_analysis(argv: List[str]) -> int:
         else:
             # Use default MLP
             import torch.nn as nn
+
             model = nn.Sequential(
                 nn.Linear(X.shape[1], args.width),
                 nn.ReLU(),
                 nn.Linear(args.width, args.width),
                 nn.ReLU(),
-                nn.Linear(args.width, 2)
+                nn.Linear(args.width, 2),
             )
 
         if args.weights:
             import torch
+
             model.load_state_dict(torch.load(args.weights))
 
         print(f"Model: {model}")
@@ -4414,14 +4409,12 @@ def run_ktheory_analysis(argv: List[str]) -> int:
 
         # Create K-theory environment
         env = load_k_theory_environment(
-            model, X,
-            max_depth=args.max_depth,
-            tolerance=args.tolerance
+            model, X, max_depth=args.max_depth, tolerance=args.tolerance
         )
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("K-THEORY ANALYSIS RESULTS")
-        print("="*60)
+        print("=" * 60)
 
         # Run analysis
         env.reset()
@@ -4463,17 +4456,18 @@ def run_ktheory_analysis(argv: List[str]) -> int:
         # Save report if requested
         if args.save_report:
             import json
+
             report = {
                 "analysis_history": env.get_history(),
                 "persistence_summary": persistence_summary,
                 "configuration": {
                     "method": args.method,
                     "tolerance": args.tolerance,
-                    "max_depth": args.max_depth
-                }
+                    "max_depth": args.max_depth,
+                },
             }
 
-            with open(args.save_report, 'w') as f:
+            with open(args.save_report, "w") as f:
                 json.dump(report, f, indent=2, default=str)
             print(f"\nReport saved to: {args.save_report}")
 
@@ -4482,17 +4476,25 @@ def run_ktheory_analysis(argv: List[str]) -> int:
     except Exception as e:
         print(f"Error in K-theory analysis: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
     # Early warning for missing PyTorch
     if torch is None:
-        commands_requiring_torch = ['demo', 'helixenv', 'analyze']
-        if argv is None or len(argv) == 0 or (len(argv) > 0 and argv[0] in commands_requiring_torch):
+        commands_requiring_torch = ["demo", "helixenv", "analyze"]
+        if (
+            argv is None
+            or len(argv) == 0
+            or (len(argv) > 0 and argv[0] in commands_requiring_torch)
+        ):
             print("⚠️  Warning: PyTorch not found. Most Helix commands require PyTorch.")
-            print("   Install with: pip install torch or pip install -e .[torch]")
+            print("   Install with: pip install torch")
             print()
 
     # If no arguments provided, run interactive mode
@@ -4513,6 +4515,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if argv and len(argv) > 0 and argv[0] == "reveals":
         return run_reveals_showcase(argv[1:])
+
+    if argv and len(argv) > 0 and argv[0] == "grok-watch":
+        from .grok_watch import run_grok_watch
+
+        return run_grok_watch(argv[1:])
 
     # New: K-theory analysis subcommand
     if argv and len(argv) > 0 and argv[0] == "ktheory":
