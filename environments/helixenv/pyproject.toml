@@ -14,6 +14,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
+include-package-data = false
 packages = [
   "helixenv",
   "helixenv.af_partition",
@@ -23,5 +24,8 @@ packages = [
 
 [tool.setuptools.package-dir]
 helixenv = "."
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "*.py[cod]"]
 
 
