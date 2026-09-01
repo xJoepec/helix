@@ -31,9 +31,10 @@ artifact set, reject temporary or path-escaping files, and verify that the saved
 global step agrees with `checkpoint-<step>` when the trainer state provides it.
 
 Each result will carry a manifest fingerprint based on relative file names,
-sizes, and nanosecond modification times. A stability tracker will compare
-successive manifests; changing artifacts remain pending and are not fed into
-phase analysis. The watcher will never mutate checkpoints.
+sizes, and nanosecond modification times. A checkpoint whose required files are
+younger than the configured settling interval is marked pending; callers can
+also compare fingerprints across polls. Changing or too-recent artifacts are
+not fed into phase analysis. The watcher will never mutate checkpoints.
 
 ### 2. Explicit run binding
 
