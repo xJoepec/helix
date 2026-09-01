@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -20,8 +21,14 @@ class CheckpointRef:
     stability_reason: str = "recent"
 
 
+def _mtime(path: Path) -> float:
+    return path.stat().st_mtime
+
+
 class CheckpointWatcher:
     def __init__(self, min_age_seconds: float = 2.0) -> None:
+        if not math.isfinite(min_age_seconds) or min_age_seconds < 0:
+            raise ValueError("min_age_seconds must be finite and nonnegative")
         self.min_age_seconds = min_age_seconds
 
     def discover(
@@ -114,10 +121,14 @@ class CheckpointWatcher:
             except OSError:
                 continue
             digest = hashlib.sha256("\n".join(sorted(manifest)).encode("utf-8"))
-            stable = all(
-                time.time() - required.stat().st_mtime >= self.min_age_seconds
-                for required in required_paths
-            )
+            try:
+                now = time.time()
+                stable = all(
+                    now - _mtime(required) >= self.min_age_seconds
+                    for required in required_paths
+                )
+            except OSError:
+                continue
             if stable_only and not stable:
                 continue
             refs.append(

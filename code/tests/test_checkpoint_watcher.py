@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+from helix.integrations import checkpoints as checkpoints_module
 from helix.integrations.checkpoints import CheckpointWatcher
 
 
@@ -142,3 +143,30 @@ def test_marks_complete_checkpoint_with_old_mtimes_stable(tmp_path) -> None:
     assert [ref.step for ref in refs] == [15]
     assert refs[0].stable is True
     assert refs[0].stability_reason == "stable"
+
+
+def test_skips_checkpoint_when_age_stat_races_with_save(tmp_path, monkeypatch) -> None:
+    checkpoint = tmp_path / "checkpoint-16"
+    checkpoint.mkdir()
+    model = checkpoint / "model.safetensors"
+    model.write_bytes(b"weights")
+    _trainer_state(checkpoint, global_step=16)
+    trainer_state = checkpoint / "trainer_state.json"
+    original_mtime = checkpoints_module._mtime
+    original_time = checkpoints_module.time.time
+    age_phase = False
+
+    def mark_age_phase():
+        nonlocal age_phase
+        age_phase = True
+        return original_time()
+
+    def race_on_age_stat(path):
+        if checkpoints_module.Path(path) == trainer_state and age_phase:
+            raise OSError("checkpoint changed during discovery")
+        return original_mtime(path)
+
+    monkeypatch.setattr(checkpoints_module.time, "time", mark_age_phase)
+    monkeypatch.setattr(checkpoints_module, "_mtime", race_on_age_stat)
+
+    assert CheckpointWatcher().discover(tmp_path) == []
