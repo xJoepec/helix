@@ -135,6 +135,29 @@ def test_cli_redacts_bearer_token_from_connection_errors(capsys) -> None:
     }
 
 
+@pytest.mark.parametrize("json_mode", [False, True])
+def test_cli_reports_missing_bearer_token_without_traceback(json_mode, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("UNSLOTH_STUDIO_TOKEN", raising=False)
+    args = ["--studio-auth", "bearer"]
+    if json_mode:
+        args.append("--json")
+
+    assert run_grok_watch(args) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+    if json_mode:
+        assert json.loads(captured.err) == {
+            "error": "Studio configuration invalid: Studio bearer authentication requires a token"
+        }
+    else:
+        assert captured.err == (
+            "error: Studio configuration invalid: "
+            "Studio bearer authentication requires a token\n"
+        )
+
+
 def test_console_main_uses_process_arguments(monkeypatch) -> None:
     from helix import cli, grok_watch
 

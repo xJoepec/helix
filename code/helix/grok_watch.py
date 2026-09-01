@@ -162,6 +162,11 @@ def run_grok_watch(argv=None, *, client_factory: Callable[..., object] = StudioC
             token=args.studio_token,
             auth_mode=args.studio_auth,
         )
+    except ValueError as exc:
+        message = f"Studio configuration invalid: {_redact_tokens(str(exc), tokens)}"
+        print(json.dumps({"error": message}) if args.json else f"error: {message}", file=sys.stderr)
+        return 1
+    try:
         snapshot = build_snapshot(client, args.run_id)
     except HTTPError as exc:
         message = f"Studio API HTTP {exc.code}: {_redact_tokens(str(exc.reason), tokens)}"

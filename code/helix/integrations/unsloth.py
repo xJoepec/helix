@@ -41,19 +41,36 @@ class StudioClient:
         transport: JsonTransport | None = None,
     ) -> None:
         parsed = urlparse(base_url)
-        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+        hostname = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or hostname not in {
             "127.0.0.1",
             "localhost",
             "::1",
         }:
             raise ValueError("Studio URL must use a loopback host")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("Studio URL must not contain a username or password")
+        if "?" in base_url:
+            raise ValueError("Studio URL must not contain a query")
+        if "#" in base_url:
+            raise ValueError("Studio URL must not contain a fragment")
+        try:
+            port = parsed.port
+        except ValueError:
+            raise ValueError("Studio URL must use a valid port") from None
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        if port is not None:
+            host = f"{host}:{port}"
+        canonical_base_url = f"{parsed.scheme.lower()}://{host}"
         normalized_auth_mode = auth_mode.strip().lower()
         if normalized_auth_mode not in {"auto", "keyless", "bearer"}:
             raise ValueError("Studio auth mode must be auto, keyless, or bearer")
         resolved_token = token if token is not None else os.getenv(token_env)
+        if resolved_token is not None:
+            resolved_token = resolved_token.strip() or None
         if normalized_auth_mode == "bearer" and not resolved_token:
             raise ValueError("Studio bearer authentication requires a token")
-        self.base_url = base_url.rstrip("/")
+        self.base_url = canonical_base_url
         self._auth_mode = normalized_auth_mode
         self._token = resolved_token
         self._transport = transport or _default_transport
