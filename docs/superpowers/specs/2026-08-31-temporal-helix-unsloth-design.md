@@ -63,4 +63,3 @@ Prime-RL rewards are follow-on subsystems, not MVP behavior.
 - Qwen diagnostics agree between CPU and CUDA within tolerance when CUDA is available.
 - `grok-watch --once --json` emits valid JSON against a fixture server and live keyless Studio.
 - New files are Ruff-clean and scoped tests pass despite documented pre-existing repository failures.
-

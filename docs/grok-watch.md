@@ -14,4 +14,3 @@ Only `127.0.0.1`, `localhost`, and `::1` are accepted. When training is active, 
 
 The command currently reports Studio telemetry and safety state. Temporal checkpoint features and
 behavioral confirmation are separate APIs; a telemetry snapshot is not evidence of grokking.
-

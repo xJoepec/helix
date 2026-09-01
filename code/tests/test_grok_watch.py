@@ -51,3 +51,18 @@ def test_console_main_uses_process_arguments(monkeypatch) -> None:
     monkeypatch.setattr(grok_watch, "run_grok_watch", fake_run)
     assert cli.main() == 0
     assert seen["argv"] == ["--json"]
+
+
+def test_historical_run_uses_persisted_metrics() -> None:
+    class HistoricalClient(FakeClient):
+        def list_runs(self, limit=20, offset=0):
+            return [RunSummary("job_1", "completed", "model", "dataset", "now", None)]
+
+        def get_metrics(self, job_id):
+            raise OSError("live metrics are unavailable for completed runs")
+
+        def get_run(self, run_id):
+            return {"metrics": {"current_step": 42, "current_loss": 0.25}}
+
+    snapshot = build_snapshot(HistoricalClient())
+    assert snapshot["metrics"]["current_step"] == 42

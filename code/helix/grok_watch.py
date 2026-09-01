@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from typing import Callable
+from urllib.error import HTTPError
 
 from .integrations.unsloth import StudioClient
 
@@ -17,7 +18,11 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
     if run is None:
         raise ValueError(f"run not found: {run_id}")
     status = client.get_status()
-    metrics = client.get_metrics(run.id)
+    try:
+        metrics = client.get_metrics(run.id)
+    except (HTTPError, OSError):
+        detail = client.get_run(run.id)
+        metrics = detail.get("metrics", {})
     hardware = client.get_hardware()
     inference = client.get_inference_status()
     training = bool(status.get("is_training_running"))

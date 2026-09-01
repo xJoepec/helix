@@ -1,8 +1,5 @@
 # Temporal Helix + Keyless Unsloth Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or
-> superpowers:executing-plans task-by-task. Steps use checkbox (`- [ ]`) syntax.
-
 **Goal:** Ship a tested, read-only `helix grok-watch` MVP for keyless Unsloth telemetry, checkpoint
 discovery, Qwen diagnostics, and temporal phase-distance scoring.
 
@@ -74,4 +71,3 @@ The existing CLI performs only orchestration and rendering.
 - [ ] Run targeted Ruff on every changed Python file.
 - [ ] Run `helix grok-watch --help` and live `--once --json`.
 - [ ] Request task reviews and final whole-branch review.
-

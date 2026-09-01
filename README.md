@@ -247,7 +247,6 @@ Treat the README as the map; the docs are the textbook.
   ```
 
 - Never break `env_api.py`; external agents depend on it.
-- See `CLAUDE.md` for a detailed assistant/developer playbook.
 
 ---
 
