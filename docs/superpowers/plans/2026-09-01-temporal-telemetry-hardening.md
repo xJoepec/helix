@@ -49,7 +49,7 @@
 
 **Interfaces:**
 - Add a normalized association object in the snapshot with selected run ID, status job ID, metrics job ID, and a state such as `bound`, `historical`, `fallback`, or `mismatch`.
-- Resolve status before implicit run selection. If `status.job_id` exists, fetch that run directly; `--run-id` always wins and uses direct lookup.
+- Resolve status before implicit run selection. If `status.job_id` exists, fetch that run directly; `--run-id` always wins and uses direct lookup. Normalize direct lookup’s nested `run` object rather than treating the response envelope as a row.
 - Consume live status fields only when `status.job_id == selected_run.id`.
 - Accept live metrics only when `metrics.job_id == selected_run.id`; on mismatch or missing identity, use the selected run’s persisted history and mark the fallback explicitly.
 - Discover checkpoints only under the selected run’s `output_dir`; never use a global output directory or current-job path.

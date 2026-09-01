@@ -15,9 +15,10 @@ reproducible and stop short of claiming calibrated grokking detection.
   `GET /api/train/metrics?expected_job_id=...`, and `GET /api/inference/status`.
 - The current loopback Studio accepts keyless reads, while its OpenAPI schema
   advertises an `HTTPBearer` security scheme.
-- A run summary includes `id`, `status`, model/dataset names, `total_steps`, and
-  `output_dir`; metrics include `job_id`, step/loss/LR histories, and gradient
-  history.
+- A run-list row includes `id`, `status`, model/dataset names, `total_steps`,
+  and `output_dir`; direct run lookup wraps that row under `run` and returns
+  sibling `config` and `metrics` objects. Metrics include `job_id`,
+  step/loss/LR histories, and gradient history.
 - QLoRA checkpoints use `adapter_model.safetensors` plus `trainer_state.json`;
   full models may use one file or an indexed set of shards.
 
