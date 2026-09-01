@@ -73,6 +73,21 @@ UNSLOTH_STUDIO_TOKEN=... helix grok-watch --studio-auth bearer --once --json
 
 See [`docs/grok-watch.md`](docs/grok-watch.md) for the loopback and GPU-safety contract.
 
+This is telemetry and phase-detection groundwork, not a calibrated grok-watch claim. Reproduce the
+repository checks without contacting Studio by running:
+
+```bash
+uv run python scripts/validate_pr.py
+```
+
+Live validation is deliberately separate and remains the explicit read-only command:
+
+```bash
+uv run helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+```
+
+Calibrated grok-watch claims require future behavioral probes.
+
 ### 1. Interactive Menu (on-ramp)
 
 ```bash
@@ -185,7 +200,9 @@ Head to `docs/getting-started.md` for a narrated walk-through of these interpret
 Helix's operator-algebraic view generalizes beyond "why did my classifier fail?" Here are a few highlights drawn from `uses.md`:
 
 1. **Model provenance.** K-theory invariants (K₀/K₁ via Smith normal forms of `I - Bᵀ` from `helix.ktheory`) act as fingerprints for detecting derived/fine-tuned models.
-2. **Phase transition alerts in LLMs.** Track Ulam spectral gaps across checkpoints (optionally with tensor-train Ulam) to spot emergent capability jumps before they appear in evals.
+2. **Temporal telemetry for LLM checkpoint studies.** Collect read-only, run-scoped checkpoint telemetry and
+   phase-distance candidates for future analysis. This is telemetry/phase-detection groundwork, not a calibrated
+   grok-watch claim; see the [validation and claims caveat](docs/grok-watch.md#reproducible-validation-and-claims).
 3. **Quantum-inspired compression.** Navigate Morita-equivalent AF algebras to identify thinner networks that preserve computational structure; exploit sparse partition stats to guide pruning.
 4. **Market microstructure discovery.** Partition extraction plus τ consistency and anisotropy metrics uncovers changing liquidity regimes in trading models.
 5. **Adversarial robustness certification.** Coisometry errors bound perturbation amplification; small ‖V V* − I‖_F becomes a certifiable robustness criterion for residual stacks.
@@ -247,8 +264,7 @@ Treat the README as the map; the docs are the textbook.
 - Before sending changes:
 
   ```bash
-  ruff check .
-  pytest -q
+  uv run python scripts/validate_pr.py
   ```
 
 - Never break `env_api.py`; external agents depend on it.

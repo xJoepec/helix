@@ -1,0 +1,119 @@
+"""Run reproducible, offline validation for a Helix pull request."""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Sequence
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+HELIXENV_ROOT = REPOSITORY_ROOT / "environments" / "helixenv"
+PASSED_TESTS_PATTERN = re.compile(r"(?m)^\s*(\d+) passed(?:,|\s)")
+
+ROOT_WHEEL_MEMBERS = frozenset(
+    {
+        "helix/__init__.py",
+        "helix/grok_watch.py",
+        "helix/temporal.py",
+        "helix/integrations/checkpoints.py",
+        "helix/integrations/unsloth.py",
+    }
+)
+HELIXENV_WHEEL_MEMBERS = frozenset(
+    {
+        "helixenv/__init__.py",
+        "helixenv/registry.py",
+        "helixenv/af_partition/env.py",
+        "helixenv/cp_dilation/env.py",
+        "helixenv/ulam_flow/env.py",
+    }
+)
+
+
+class ValidationError(RuntimeError):
+    """Raised when a validation stage does not meet its contract."""
+
+
+def run_command(command: Sequence[str], *, cwd: Path = REPOSITORY_ROOT) -> str:
+    """Run a command without a shell, relay its output, and fail on a nonzero exit."""
+    print("$", " ".join(command))
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    print(completed.stdout, end="")
+    if completed.returncode:
+        raise ValidationError(
+            f"command exited with status {completed.returncode}: {' '.join(command)}"
+        )
+    return completed.stdout
+
+
+def parse_passed_test_count(pytest_output: str) -> int:
+    """Return the passed-test count reported by pytest's summary line."""
+    matches = PASSED_TESTS_PATTERN.findall(pytest_output)
+    if not matches:
+        raise ValidationError("pytest completed without a parseable '<N> passed' summary")
+    return int(matches[-1])
+
+
+def find_wheel(directory: Path) -> Path:
+    """Return the single wheel built in *directory*."""
+    wheels = sorted(directory.glob("*.whl"))
+    if len(wheels) != 1:
+        raise ValidationError(f"expected exactly one wheel in {directory}, found {len(wheels)}")
+    return wheels[0]
+
+
+def assert_wheel_members(wheel: Path, expected_members: frozenset[str]) -> None:
+    """Ensure a wheel contains every required importable package member."""
+    with zipfile.ZipFile(wheel) as archive:
+        members = set(archive.namelist())
+    missing = sorted(expected_members - members)
+    if missing:
+        raise ValidationError(f"{wheel.name} is missing wheel members: {', '.join(missing)}")
+    print(f"Validated {wheel.name} package contents.")
+
+
+def main() -> int:
+    """Validate tests, lint, build artifacts, and package contents without Studio access."""
+    try:
+        pytest_output = run_command([sys.executable, "-m", "pytest", "-q"])
+        passed_test_count = parse_passed_test_count(pytest_output)
+        run_command([sys.executable, "-m", "ruff", "check", "."])
+
+        with tempfile.TemporaryDirectory(prefix="helix-pr-validation-") as temporary_directory:
+            wheel_directory = Path(temporary_directory)
+            root_output = wheel_directory / "helix"
+            helixenv_output = wheel_directory / "helixenv"
+            root_output.mkdir()
+            helixenv_output.mkdir()
+
+            run_command(
+                ["uv", "build", "--wheel", "--out-dir", str(root_output)],
+                cwd=REPOSITORY_ROOT,
+            )
+            run_command(
+                ["uv", "build", "--wheel", "--out-dir", str(helixenv_output)],
+                cwd=HELIXENV_ROOT,
+            )
+            assert_wheel_members(find_wheel(root_output), ROOT_WHEEL_MEMBERS)
+            assert_wheel_members(find_wheel(helixenv_output), HELIXENV_WHEEL_MEMBERS)
+    except ValidationError as error:
+        print(f"PR validation failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"PR validation passed: {passed_test_count} tests passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

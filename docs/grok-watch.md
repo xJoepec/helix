@@ -27,3 +27,21 @@ identity; later checkpoints from that same run remain scoreable when they carry 
 
 Temporal checkpoint features and behavioral confirmation are separate APIs. Neither a telemetry snapshot nor a
 phase-distance candidate is evidence of grokking.
+
+## Reproducible validation and claims
+
+Run the checked-in offline validator before making a merge claim:
+
+```bash
+uv run python scripts/validate_pr.py
+```
+
+It runs the full test suite, whole-repository Ruff, both wheel builds, and wheel-content checks. It does not
+contact Studio. If live read-only telemetry validation is needed, run it explicitly:
+
+```bash
+uv run helix grok-watch --studio-url http://127.0.0.1:8888 --once --json
+```
+
+Current work is telemetry/phase-detection groundwork. A calibrated grok-watch claim is reserved for future
+behavioral probes.
