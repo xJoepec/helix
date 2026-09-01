@@ -1,5 +1,7 @@
 import json
+import os
 import sys
+import time
 from urllib.error import HTTPError
 
 from helix.grok_watch import build_snapshot, run_grok_watch
@@ -164,6 +166,16 @@ def test_snapshot_discovers_complete_checkpoints_from_output_dir(tmp_path) -> No
     (checkpoint / "model.safetensors.index.json").write_text(
         json.dumps({"weight_map": {"layer": shard.name}}), encoding="utf-8"
     )
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": 12}), encoding="utf-8"
+    )
+    old = time.time() - 60
+    for path in (
+        shard,
+        checkpoint / "model.safetensors.index.json",
+        checkpoint / "trainer_state.json",
+    ):
+        os.utime(path, (old, old))
 
     class CheckpointClient(FakeClient):
         def list_runs(self, limit=20, offset=0):
@@ -173,6 +185,37 @@ def test_snapshot_discovers_complete_checkpoints_from_output_dir(tmp_path) -> No
     assert len(snapshot["checkpoints"]) == 1
     assert snapshot["checkpoints"][0]["step"] == 12
     assert snapshot["checkpoints"][0]["path"] == str(checkpoint)
+
+
+def test_snapshot_separates_stable_and_pending_checkpoints(tmp_path) -> None:
+    stable = tmp_path / "checkpoint-10"
+    stable.mkdir()
+    stable_model = stable / "model.safetensors"
+    stable_model.write_bytes(b"stable")
+    (stable / "trainer_state.json").write_text(
+        json.dumps({"global_step": 10}), encoding="utf-8"
+    )
+    pending = tmp_path / "checkpoint-11"
+    pending.mkdir()
+    pending_model = pending / "model.safetensors"
+    pending_model.write_bytes(b"pending")
+    (pending / "trainer_state.json").write_text(
+        json.dumps({"global_step": 11}), encoding="utf-8"
+    )
+    old = time.time() - 60
+    for path in (stable_model, stable / "trainer_state.json"):
+        os.utime(path, (old, old))
+
+    class CheckpointClient(FakeClient):
+        def list_runs(self, limit=20, offset=0):
+            return [RunSummary("job_1", "running", "model", "dataset", "now", str(tmp_path))]
+
+    snapshot = build_snapshot(CheckpointClient())
+
+    assert [item["step"] for item in snapshot["checkpoints"]] == [10]
+    assert [item["step"] for item in snapshot["pending_checkpoints"]] == [11]
+    assert snapshot["checkpoints"][0]["stable"] is True
+    assert snapshot["pending_checkpoints"][0]["stable"] is False
 
 
 def test_human_cli_reports_concise_http_error(capsys) -> None:

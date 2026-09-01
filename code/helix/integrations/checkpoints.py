@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,10 +16,17 @@ class CheckpointRef:
     path: Path
     shard_paths: tuple[Path, ...]
     fingerprint: str
+    stable: bool = False
+    stability_reason: str = "recent"
 
 
 class CheckpointWatcher:
-    def discover(self, output_dir: Path) -> list[CheckpointRef]:
+    def __init__(self, min_age_seconds: float = 2.0) -> None:
+        self.min_age_seconds = min_age_seconds
+
+    def discover(
+        self, output_dir: Path, *, stable_only: bool = False
+    ) -> list[CheckpointRef]:
         refs = []
         output_root = output_dir.resolve()
         for path in output_dir.glob("checkpoint-*"):
@@ -32,7 +40,29 @@ class CheckpointWatcher:
             trainer_state_path = path / "trainer_state.json"
             model_path = path / "model.safetensors"
 
+            if (
+                not trainer_state_path.is_file()
+                or trainer_state_path.is_symlink()
+            ):
+                continue
+            try:
+                trainer_state = json.loads(trainer_state_path.read_text(encoding="utf-8"))
+            except (TypeError, ValueError, OSError):
+                continue
+            if not isinstance(trainer_state, dict):
+                continue
+            trainer_step = trainer_state.get("global_step")
+            if trainer_step is not None and (
+                isinstance(trainer_step, bool)
+                or not isinstance(trainer_step, int)
+                or trainer_step != int(match.group(1))
+            ):
+                continue
+
+            required_paths = [trainer_state_path]
             if index_path.exists():
+                if not index_path.is_file() or index_path.is_symlink():
+                    continue
                 try:
                     data = json.loads(index_path.read_text(encoding="utf-8"))
                     weight_map = data["weight_map"]
@@ -51,29 +81,53 @@ class CheckpointWatcher:
                 shards = tuple((path / name).resolve() for name in names)
                 if any(shard.parent != root or not shard.is_file() for shard in shards):
                     continue
-                try:
-                    digest = hashlib.sha256(index_path.read_bytes())
-                except OSError:
+                if any((path / name).is_symlink() for name in names):
                     continue
+                required_paths.extend([index_path, *shards])
             elif adapter_path.exists():
-                if not adapter_path.is_file() or not trainer_state_path.is_file():
+                if not adapter_path.is_file() or adapter_path.is_symlink():
                     continue
                 shards = (adapter_path.resolve(),)
-                try:
-                    digest = hashlib.sha256(trainer_state_path.read_bytes())
-                except OSError:
-                    continue
+                required_paths.append(adapter_path)
             elif model_path.is_file():
+                if model_path.is_symlink():
+                    continue
                 shards = (model_path.resolve(),)
-                digest = hashlib.sha256()
+                required_paths.append(model_path)
             else:
                 continue
 
             try:
-                for shard in shards:
-                    stat = shard.stat()
-                    digest.update(f"{shard.name}:{stat.st_size}".encode())
+                manifest = []
+                for required in required_paths:
+                    resolved = required.resolve()
+                    if (
+                        required.is_symlink()
+                        or resolved.parent != root
+                        or not required.is_file()
+                    ):
+                        raise OSError
+                    stat = required.stat()
+                    manifest.append(
+                        f"{required.relative_to(path).as_posix()}:{stat.st_size}:{stat.st_mtime_ns}"
+                    )
             except OSError:
                 continue
-            refs.append(CheckpointRef(int(match.group(1)), path, shards, digest.hexdigest()))
+            digest = hashlib.sha256("\n".join(sorted(manifest)).encode("utf-8"))
+            stable = all(
+                time.time() - required.stat().st_mtime >= self.min_age_seconds
+                for required in required_paths
+            )
+            if stable_only and not stable:
+                continue
+            refs.append(
+                CheckpointRef(
+                    int(match.group(1)),
+                    path,
+                    shards,
+                    digest.hexdigest(),
+                    stable,
+                    "stable" if stable else "recent",
+                )
+            )
         return sorted(refs, key=lambda ref: ref.step)

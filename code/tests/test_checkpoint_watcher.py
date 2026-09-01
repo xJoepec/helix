@@ -1,6 +1,13 @@
 import json
+import os
+import time
 
 from helix.integrations.checkpoints import CheckpointWatcher
+
+
+def _trainer_state(checkpoint, *, global_step=None):
+    state = {} if global_step is None else {"global_step": global_step}
+    (checkpoint / "trainer_state.json").write_text(json.dumps(state), encoding="utf-8")
 
 
 def test_discovers_only_complete_indexed_checkpoint(tmp_path) -> None:
@@ -21,6 +28,7 @@ def test_discovers_only_complete_indexed_checkpoint(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
+    _trainer_state(checkpoint, global_step=500)
     refs = CheckpointWatcher().discover(tmp_path)
     assert [ref.step for ref in refs] == [500]
     assert refs[0].shard_paths == (first_shard, second_shard)
@@ -44,6 +52,7 @@ def test_discovers_single_file_safetensors_checkpoint(tmp_path) -> None:
     checkpoint.mkdir()
     model = checkpoint / "model.safetensors"
     model.write_bytes(b"model weights")
+    _trainer_state(checkpoint, global_step=9)
 
     refs = CheckpointWatcher().discover(tmp_path)
 
@@ -57,6 +66,7 @@ def test_rejects_missing_shard(tmp_path) -> None:
     (checkpoint / "model.safetensors.index.json").write_text(
         json.dumps({"weight_map": {"x": "missing.safetensors"}}), encoding="utf-8"
     )
+    _trainer_state(checkpoint, global_step=7)
     assert CheckpointWatcher().discover(tmp_path) == []
 
 
@@ -76,6 +86,7 @@ def test_rejects_indexed_checkpoint_with_traversal_shard(tmp_path) -> None:
     (checkpoint / "model.safetensors.index.json").write_text(
         json.dumps({"weight_map": {"x": f"../{outside.name}"}}), encoding="utf-8"
     )
+    _trainer_state(checkpoint, global_step=11)
 
     assert CheckpointWatcher().discover(tmp_path) == []
 
@@ -87,5 +98,47 @@ def test_does_not_fallback_from_partial_index_to_single_file(tmp_path) -> None:
     (checkpoint / "model.safetensors.index.json").write_text(
         json.dumps({"weight_map": {"x": "missing.safetensors"}}), encoding="utf-8"
     )
+    _trainer_state(checkpoint, global_step=12)
 
     assert CheckpointWatcher().discover(tmp_path) == []
+
+
+def test_rejects_checkpoint_when_trainer_step_does_not_match_directory(tmp_path) -> None:
+    checkpoint = tmp_path / "checkpoint-13"
+    checkpoint.mkdir()
+    model = checkpoint / "model.safetensors"
+    model.write_bytes(b"weights")
+    _trainer_state(checkpoint, global_step=12)
+
+    assert CheckpointWatcher().discover(tmp_path) == []
+
+
+def test_marks_recently_modified_complete_checkpoint_pending(tmp_path) -> None:
+    checkpoint = tmp_path / "checkpoint-14"
+    checkpoint.mkdir()
+    model = checkpoint / "model.safetensors"
+    model.write_bytes(b"weights")
+    _trainer_state(checkpoint, global_step=14)
+
+    refs = CheckpointWatcher(min_age_seconds=60).discover(tmp_path)
+
+    assert len(refs) == 1
+    assert refs[0].stable is False
+    assert refs[0].stability_reason == "recent"
+
+
+def test_marks_complete_checkpoint_with_old_mtimes_stable(tmp_path) -> None:
+    checkpoint = tmp_path / "checkpoint-15"
+    checkpoint.mkdir()
+    model = checkpoint / "model.safetensors"
+    model.write_bytes(b"weights")
+    _trainer_state(checkpoint, global_step=15)
+    old = time.time() - 120
+    for path in (model, checkpoint / "trainer_state.json"):
+        os.utime(path, (old, old))
+
+    refs = CheckpointWatcher(min_age_seconds=60).discover(tmp_path, stable_only=True)
+
+    assert [ref.step for ref in refs] == [15]
+    assert refs[0].stable is True
+    assert refs[0].stability_reason == "stable"

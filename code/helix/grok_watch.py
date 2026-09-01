@@ -65,7 +65,21 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
     selected_phase = (
         status.get("phase") if use_live_status else detail.get("status", run.status)
     )
-    checkpoints = CheckpointWatcher().discover(Path(run.output_dir)) if run.output_dir else []
+    checkpoint_refs = (
+        CheckpointWatcher().discover(Path(run.output_dir)) if run.output_dir else []
+    )
+    checkpoints = [ref for ref in checkpoint_refs if ref.stable]
+    pending_checkpoints = [ref for ref in checkpoint_refs if not ref.stable]
+
+    def checkpoint_payload(ref):
+        return {
+            "step": ref.step,
+            "path": str(ref.path),
+            "fingerprint": ref.fingerprint,
+            "stable": ref.stable,
+            "stability_reason": ref.stability_reason,
+        }
+
     return {
         "run": {
             "id": run.id,
@@ -84,10 +98,8 @@ def build_snapshot(client, run_id: str | None = None) -> dict:
             "loss": details.get("loss") if use_live_status else current_loss,
         },
         "metrics": metric_summary,
-        "checkpoints": [
-            {"step": ref.step, "path": str(ref.path), "fingerprint": ref.fingerprint}
-            for ref in checkpoints
-        ],
+        "checkpoints": [checkpoint_payload(ref) for ref in checkpoints],
+        "pending_checkpoints": [checkpoint_payload(ref) for ref in pending_checkpoints],
         "hardware": hardware,
         "safety": {
             "training_active": training,
