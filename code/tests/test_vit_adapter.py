@@ -96,7 +96,7 @@ class MockViT(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Simplified forward pass
-        B, N, D = x.shape  # Assume x is already patch-embedded
+        x = self.patch_embed(x)
 
         for block in self.blocks:
             x = block(x)

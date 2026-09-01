@@ -40,7 +40,7 @@ Each diagnostic is optional yet composable: start with AF partitions, layer in C
 
 ## Installation & Requirements
 
-Helix targets Python 3.10+. A virtual environment is strongly recommended.
+Helix targets Python 3.11+. A virtual environment is strongly recommended.
 
 ```bash
 python3 -m venv .venv
@@ -48,13 +48,13 @@ source .venv/bin/activate
 python3 -m pip install -U pip
 
 # Choose the feature set that matches your workflow:
-python3 -m pip install -e .                # Minimal API (partition extraction only)
-python3 -m pip install -e .[torch,viz]     # CLI + plotting (PyTorch + matplotlib)
+python3 -m pip install -e .                # Core API + PyTorch
+python3 -m pip install -e '.[viz]'         # CLI + plotting (matplotlib)
 python3 -m pip install -e .[tui]           # TUI interface (textual, rich)
-python3 -m pip install -e .[full]          # Everything: torch, viz, tui, topology
+python3 -m pip install -e '.[full]'        # Everything: viz, tui, topology
 ```
 
-> **PyTorch is required** for the demo, CLI analysis, and most environments. Install `torch` separately if you pick the minimal target.
+> **PyTorch is a core dependency** for the demo, CLI analysis, and most environments.
 
 ---
 
@@ -75,6 +75,8 @@ See [`docs/grok-watch.md`](docs/grok-watch.md) for the loopback and GPU-safety c
 ```bash
 ./helix
 ```
+
+On Windows, use `helix.cmd` from PowerShell or Command Prompt.
 
 Options include:
 
@@ -231,7 +233,7 @@ Treat the README as the map; the docs are the textbook.
 - `environments/` — External evaluation harnesses (`helixenv`, `ktheory`).
 - `ascii-animations/` — ANSI frames for CLI banners.
 - `docs/` — Complete documentation set described above.
-- `./helix` — Convenience launcher so you can run the CLI directly from the repo.
+- `./helix` / `helix.cmd` — Repo launchers for Unix and Windows.
 
 ---
 

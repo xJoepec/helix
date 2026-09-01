@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover
 
 try:  # pragma: no cover - optional dependency at runtime
     import verifiers as vf
+
     # Modern verifiers exposes Parser and Messages at the top-level
     try:
         from verifiers import Messages, Parser  # type: ignore[attr-defined]
@@ -49,6 +50,7 @@ except Exception:  # pragma: no cover - graceful fallback for tests / dev shells
         reward: float
         done: bool
         info: Dict[str, Any]
+
 
 from helix.env_api import AFLevelMetrics, AFMetrics, extract_af_metrics
 
@@ -115,7 +117,9 @@ class CPDilationEnv(_VFEnv):
             weights = None
 
         # Extract AF metrics and levels
-        metrics = extract_af_metrics(model, self._dataset, sample_weights=weights, mass_tol=mass_tol)
+        metrics = extract_af_metrics(
+            model, self._dataset, sample_weights=weights, mass_tol=mass_tol
+        )
         levels = list(metrics.levels)
         if max_depth is not None:
             levels = levels[:max_depth]

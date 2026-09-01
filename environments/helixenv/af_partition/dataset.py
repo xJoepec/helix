@@ -34,34 +34,77 @@ class ScenarioSpec:
 
     def __post_init__(self):
         if self.dataset_kwargs is None:
-            object.__setattr__(self, 'dataset_kwargs', {})
+            object.__setattr__(self, "dataset_kwargs", {})
 
 
 DEFAULT_SCENARIOS: Sequence[ScenarioSpec] = (
     # Two moons (traditional)
-    ScenarioSpec(seed=11, samples=512, noise=0.08, width=8, epochs=40, train=True,
-                dataset_type="moons", description="balanced moderate capacity (moons)"),
-
+    ScenarioSpec(
+        seed=11,
+        samples=512,
+        noise=0.08,
+        width=8,
+        epochs=40,
+        train=True,
+        dataset_type="moons",
+        description="balanced moderate capacity (moons)",
+    ),
     # Swiss Roll (manifold learning)
-    ScenarioSpec(seed=21, samples=512, noise=0.02, width=48, epochs=140, train=True,
-                dataset_type="swiss_roll", description="very wide network (swiss roll)"),
-
+    ScenarioSpec(
+        seed=21,
+        samples=512,
+        noise=0.02,
+        width=48,
+        epochs=140,
+        train=True,
+        dataset_type="swiss_roll",
+        description="very wide network (swiss roll)",
+    ),
     # Concentric circles (radial structure)
-    ScenarioSpec(seed=31, samples=512, noise=0.10, width=12, epochs=30, train=True,
-                dataset_type="circles", description="narrow architecture (circles)"),
-
+    ScenarioSpec(
+        seed=31,
+        samples=512,
+        noise=0.10,
+        width=12,
+        epochs=30,
+        train=True,
+        dataset_type="circles",
+        description="narrow architecture (circles)",
+    ),
     # XOR (non-linear separability)
-    ScenarioSpec(seed=41, samples=640, noise=0.07, width=16, epochs=80, train=True,
-                dataset_type="xor", description="well trained baseline (xor)"),
-
+    ScenarioSpec(
+        seed=41,
+        samples=640,
+        noise=0.07,
+        width=16,
+        epochs=80,
+        train=True,
+        dataset_type="xor",
+        description="well trained baseline (xor)",
+    ),
     # S-curve (smooth manifold)
-    ScenarioSpec(seed=51, samples=512, noise=0.03, width=32, epochs=120, train=True,
-                dataset_type="s_curve", description="high expressivity (s-curve)"),
-
+    ScenarioSpec(
+        seed=51,
+        samples=512,
+        noise=0.03,
+        width=32,
+        epochs=120,
+        train=True,
+        dataset_type="s_curve",
+        description="high expressivity (s-curve)",
+    ),
     # Swiss Roll with hole (topological complexity)
-    ScenarioSpec(seed=61, samples=384, noise=0.20, width=5, epochs=0, train=False,
-                dataset_type="swiss_roll", dataset_kwargs={"hole": True},
-                description="untrained noisy model (swiss roll hole)"),
+    ScenarioSpec(
+        seed=61,
+        samples=384,
+        noise=0.20,
+        width=5,
+        epochs=0,
+        train=False,
+        dataset_type="swiss_roll",
+        dataset_kwargs={"hole": True},
+        description="untrained noisy model (swiss roll hole)",
+    ),
 )
 
 
@@ -104,7 +147,9 @@ def build_af_examples(
 # ---------------------------------------------------------------------------
 
 
-def _scenario_from_spec(spec: ScenarioSpec, index: int, *, seed_offset: int) -> tuple[dict[str, Any], str]:
+def _scenario_from_spec(
+    spec: ScenarioSpec, index: int, *, seed_offset: int
+) -> tuple[dict[str, Any], str]:
     torch.manual_seed(spec.seed + seed_offset)
     np.random.seed(spec.seed + seed_offset)
 
@@ -115,7 +160,9 @@ def _scenario_from_spec(spec: ScenarioSpec, index: int, *, seed_offset: int) -> 
     elif spec.dataset_type == "swiss_roll":
         X, y = _make_swiss_roll(spec.samples, spec.noise, spec.seed + seed_offset, **dataset_kwargs)
     elif spec.dataset_type == "circles":
-        X, y = _make_concentric_circles(spec.samples, spec.noise, spec.seed + seed_offset, **dataset_kwargs)
+        X, y = _make_concentric_circles(
+            spec.samples, spec.noise, spec.seed + seed_offset, **dataset_kwargs
+        )
     elif spec.dataset_type == "xor":
         X, y = _make_xor(spec.samples, spec.noise, spec.seed + seed_offset)
     elif spec.dataset_type == "s_curve":
@@ -174,7 +221,9 @@ def _make_moons(n: int, noise: float, seed: int) -> tuple[np.ndarray, np.ndarray
     return X, y
 
 
-def _make_swiss_roll(n: int, noise: float, seed: int, *, hole: bool = False) -> tuple[np.ndarray, np.ndarray]:
+def _make_swiss_roll(
+    n: int, noise: float, seed: int, *, hole: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
     """Generate Swiss Roll dataset for manifold learning diagnostics."""
     rng = np.random.default_rng(seed)
 
@@ -193,7 +242,7 @@ def _make_swiss_roll(n: int, noise: float, seed: int, *, hole: bool = False) -> 
 
     # For hole variant, remove center region
     if hole:
-        distances = np.sqrt(X[:, 0]**2 + X[:, 2]**2)
+        distances = np.sqrt(X[:, 0] ** 2 + X[:, 2] ** 2)
         valid_mask = (distances < 5) | (distances > 8)
         X = X[valid_mask]
         t = t[valid_mask]
@@ -209,7 +258,9 @@ def _make_swiss_roll(n: int, noise: float, seed: int, *, hole: bool = False) -> 
     return X, y
 
 
-def _make_concentric_circles(n: int, noise: float, seed: int, *, factor: float = 0.8) -> tuple[np.ndarray, np.ndarray]:
+def _make_concentric_circles(
+    n: int, noise: float, seed: int, *, factor: float = 0.8
+) -> tuple[np.ndarray, np.ndarray]:
     """Generate concentric circles dataset."""
     rng = np.random.default_rng(seed)
 
@@ -354,12 +405,15 @@ def _classify(metrics: AFMetrics, cp_stats: Sequence[dict[str, float]]) -> tuple
         or coiso_max > 0.12
     ):
         rationale = (
-            "Wasted mass or limited refinement (very low region growth) indicates the partition collapsed."
+            "Wasted mass or limited refinement (very low region growth) "
+            "indicates the partition collapsed."
         )
         return "collapsed", rationale
 
     if n_regions_last >= 28 or (growth_factor >= 3.5 and entropy_last >= 1.3):
-        rationale = "Region growth and entropy are disproportionately large, signalling wasted capacity."
+        rationale = (
+            "Region growth and entropy are disproportionately large, signalling wasted capacity."
+        )
         return "capacity", rationale
 
     rationale = "Mass is consistent and region growth is moderate, indicating a stable extraction."
@@ -384,7 +438,10 @@ def _format_prompt(
         lines.append(f"Notes: {spec.description}.")
     lines.append("")
     lines.append("Depth summary (wasted_ratio = zero-mass cells / total):")
-    header = f"{'depth':>5} {'regions':>9} {'mass_err':>12} {'wasted':>10} {'wasted_ratio':>14} {'entropy':>10}"
+    header = (
+        f"{'depth':>5} {'regions':>9} {'mass_err':>12} {'wasted':>10} "
+        f"{'wasted_ratio':>14} {'entropy':>10}"
+    )
     lines.append(header)
     lines.append("-" * len(header))
     for level in metrics.levels:
@@ -399,7 +456,9 @@ def _format_prompt(
     lines.append("-" * 47)
     for idx, diag in enumerate(cp_stats, start=1):
         lines.append(
-            f"{idx:>5} {diag['unital_err_fro']:>12.3e} {diag['coisometry_err_fro']:>12.3e} {diag['psd_min_eig_violation']:>12.3e}"
+            f"{idx:>5} {diag['unital_err_fro']:>12.3e} "
+            f"{diag['coisometry_err_fro']:>12.3e} "
+            f"{diag['psd_min_eig_violation']:>12.3e}"
         )
     lines.append("")
     lines.append("Classify this run into one of the following categories:")

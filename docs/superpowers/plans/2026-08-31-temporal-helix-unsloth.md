@@ -6,7 +6,7 @@ discovery, Qwen diagnostics, and temporal phase-distance scoring.
 **Architecture:** Independent modules isolate HTTP, filesystem, tensor, and statistical responsibilities.
 The existing CLI performs only orchestration and rendering.
 
-**Tech Stack:** Python 3.9+, standard library HTTP/JSON, NumPy, PyTorch, argparse, pytest, Ruff, uv.
+**Tech Stack:** Python 3.11+, standard library HTTP/JSON, NumPy, PyTorch, argparse, pytest, Ruff, uv.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-temporal-helix-unsloth-design.md`
 

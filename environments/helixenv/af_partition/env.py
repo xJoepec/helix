@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover
 
 try:  # pragma: no cover - optional dependency at runtime
     import verifiers as vf
+
     # Modern verifiers exposes Parser and Messages at the top-level
     try:
         from verifiers import Messages, Parser  # type: ignore[attr-defined]
@@ -58,6 +59,7 @@ except Exception:  # pragma: no cover - graceful fallback for tests / dev shells
         reward: float
         done: bool
         info: Dict[str, Any]
+
 
 from helix.env_api import AFLevelMetrics, AFMetrics, af_feature_vector, extract_af_metrics
 
@@ -128,7 +130,9 @@ class AFPartitionEnv(_VFEnv):
         else:
             weights = None
 
-        metrics = extract_af_metrics(model, self._dataset, sample_weights=weights, mass_tol=mass_tol)
+        metrics = extract_af_metrics(
+            model, self._dataset, sample_weights=weights, mass_tol=mass_tol
+        )
         levels = list(metrics.levels)
         if max_depth is not None:
             levels = levels[:max_depth]
@@ -155,7 +159,11 @@ class AFPartitionEnv(_VFEnv):
                 V = build_V_from_incidence(np.array(B), tau_prev, tau_cur)
                 diag = sanity_check_ucp(V, trials=6)
             except Exception:
-                diag = {"unital_err_fro": 0.0, "coisometry_err_fro": 0.0, "psd_min_eig_violation": 0.0}
+                diag = {
+                    "unital_err_fro": 0.0,
+                    "coisometry_err_fro": 0.0,
+                    "psd_min_eig_violation": 0.0,
+                }
             self._cp_stats.append(diag)
 
         # Optional spectral gaps per depth; can be injected later
@@ -238,8 +246,10 @@ class AFPartitionEnv(_VFEnv):
     def _reward(self, level: AFLevelMetrics) -> float:
         idx = int(level.depth) - 1
         cp = self._cp_stats[idx] if 0 <= idx < len(self._cp_stats) else {}
-        cp_agg = float(cp.get("unital_err_fro", 0.0)) + float(cp.get("coisometry_err_fro", 0.0)) + float(
-            cp.get("psd_min_eig_violation", 0.0)
+        cp_agg = (
+            float(cp.get("unital_err_fro", 0.0))
+            + float(cp.get("coisometry_err_fro", 0.0))
+            + float(cp.get("psd_min_eig_violation", 0.0))
         )
         gap = self._spectral_gaps[idx] if 0 <= idx < len(self._spectral_gaps) else None
 
@@ -315,7 +325,8 @@ def load_verifiers_environment(
         api_key = os.getenv(llm_judge_api_key_var, "")
         if not api_key:
             raise RuntimeError(
-                "enable_llm_judge=True but no API key found. Set the key via the CLI (helix helixenv "
+                "enable_llm_judge=True but no API key found. Set the key via the CLI "
+                "(helix helixenv "
                 f"--api-key ...) or export {llm_judge_api_key_var}."
             )
 
@@ -355,7 +366,8 @@ def load_verifiers_environment(
         from openai import AsyncOpenAI  # defer import until key available
 
         judge_prompt_text = llm_judge_prompt or (
-            "You are validating Helix operator-algebra diagnostics. Given the prompt (with metrics), "
+            "You are validating Helix operator-algebra diagnostics. Given the prompt "
+            "(with metrics), "
             "the assistant's letter answer, and the gold label, decide if the answer is correct.\n"
             "Reply using either:\n"
             "  verdict: correct\n"
@@ -410,7 +422,8 @@ def load_verifiers_environment(
 
     default_system_prompt = (
         "You are a Helix operator-algebra analyst. Each prompt provides AF partition diagnostics "
-        "for a trained model. Respond with a single letter (A, B, or C) indicating the best category."
+        "for a trained model. Respond with a single letter (A, B, or C) indicating "
+        "the best category."
     )
 
     prompt_text = system_prompt or default_system_prompt
@@ -539,7 +552,8 @@ def _install_datasets() -> None:
         )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - install failure
         raise RuntimeError(
-            "Automatic installation of 'datasets' failed. Install it manually with 'pip install datasets'."
+            "Automatic installation of 'datasets' failed. Install it manually with "
+            "'pip install datasets'."
         ) from exc
 
 

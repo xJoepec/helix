@@ -12,6 +12,7 @@
 
 Notes:
 - The repo-root `./helix` launcher works without installation.
+- On Windows, use `helix.cmd` from PowerShell or Command Prompt.
 - PyTorch is required for demo, analyze, and helixenv flows.
 
 ## Demo flags (no subcommand)
